@@ -31,9 +31,9 @@ type (
 		onStartListeners []func()
 		onStopListeners  []func()
 
-		// Guards and Pipes
-		guards []interface{}
-		pipes  []interface{}
+		// TODO: Guards and Pipes
+		// guards []interface{}
+		// pipes  []interface{}
 
 		// Function to run with the injection support
 		functionsWithInjection []interface{}
@@ -52,10 +52,21 @@ type (
 	}
 )
 
-// Prepares the injection function that will be called by fx.Invoke.
-//
-// Also initializes the instanceMap.
-func (app *NassiApp) createInjectionInits() (provider fx.Option, initInvoker interface{}) {
+// Function to get a provider from the app.
+func GetProvider[T interface{}](app NassiApp, prov T) (ret T, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			app.logger.Panicf("provider not found: %s", reflect.TypeOf(prov).String())
+		}
+	}()
+
+	ret = app.instanceMap[reflect.TypeOf(prov)].Interface().(T)
+
+	return
+}
+
+// Prepares the provider and injection functions for the app.
+func (app *NassiApp) createInjectionInits() (provider, initInvoker fx.Option) {
 	// List to save all providers.
 	var opList []fx.Option = []fx.Option{}
 
@@ -105,20 +116,7 @@ func (app *NassiApp) createInjectionInits() (provider fx.Option, initInvoker int
 	provider = fx.Module("AppModule", opList...)
 
 	// Return the function and the fx.Option
-	initInvoker = function.Interface()
-
-	return
-}
-
-// Function to get a provider from the app.
-func GetProvider[T interface{}](app NassiApp, prov T) (ret T, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			app.logger.Panicf("provider not found: %s", reflect.TypeOf(prov).String())
-		}
-	}()
-
-	ret = app.instanceMap[reflect.TypeOf(prov)].Interface().(T)
+	initInvoker = fx.Invoke(function.Interface())
 
 	return
 }
@@ -129,7 +127,7 @@ func CreateApp(option AppOption) *NassiApp {
 	logger.SetAppName(option.AppName)
 
 	// Create a new Gin Engine
-	engine := NewGinHttpEngine(HttpEngineOption{})
+	engine := NewEchoHttpEngine(HttpEngineOption{})
 
 	a := &NassiApp{
 		appModule: *option.AppModule,
@@ -291,18 +289,18 @@ func (app *NassiApp) Run(options ...RuntimeOptions) {
 	providers, initInvoker := app.createInjectionInits()
 
 	app.fxApp = fx.New(
+		// Logger settings (TODO: make this configurable)
 		fx.WithLogger(func() fxevent.Logger { return fxevent.NopLogger }),
-		// Get auto generated fx.Option from the module
-		providers,
 
-		// Inject the runtime options
-		optionProvider,
+		// PROVIDERS
+		providers,      // Get auto generated fx.Option from the module
+		optionProvider, // Inject the runtime options
 
-		fx.Invoke(initInvoker),
+		// INVOKEs
+		initInvoker,
 
 		// Run any custom run function for injections
 		fx.Invoke(app.functionsWithInjection...),
-
 		fx.Invoke(app.run),
 	)
 

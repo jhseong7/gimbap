@@ -27,6 +27,7 @@ type (
 	}
 )
 
+// Write the log to the logger
 func (g *GinLogger) Write(p []byte) (n int, err error) {
 	// Trim the last newline character (if exists)
 	p = bytes.TrimRight(p, "\n")
@@ -35,6 +36,8 @@ func (g *GinLogger) Write(p []byte) (n int, err error) {
 }
 
 // Check if the handler is valid and cast it to gin.HandlerFunc.
+//
+// This is a helper function to check if the handler is valid and cast it to gin.HandlerFunc before registering it to the engine.
 func (e *GinHttpEngine) checkAndCastToGinHandler(handler interface{}) gin.HandlerFunc {
 	// Check if the input 0 is *gin.Context
 	handlerType := reflect.TypeOf(handler)
@@ -49,7 +52,7 @@ func (e *GinHttpEngine) checkAndCastToGinHandler(handler interface{}) gin.Handle
 func (e *GinHttpEngine) RegisterController(rootPath string, instance IController) {
 	defer func() {
 		if r := recover(); r != nil {
-			e.logger.Panic("Failed to register controller")
+			e.logger.Panicf("Failed to register controller to path: %s", rootPath)
 		}
 	}()
 
@@ -68,6 +71,7 @@ func (e *GinHttpEngine) RegisterController(rootPath string, instance IController
 	}
 }
 
+// Add middleware to the engine
 func (e *GinHttpEngine) AddMiddleware(middleware ...interface{}) {
 	for _, m := range middleware {
 		casted := e.checkAndCastToGinHandler(m)
@@ -86,6 +90,9 @@ func (e *GinHttpEngine) Run(port int) {
 }
 
 func CreateGinHttpEngine(logger logger.Logger) (e *gin.Engine) {
+	// Set gin to release mode (suppresses debug messages)
+	gin.SetMode(gin.ReleaseMode)
+
 	e = gin.New()
 	e.Use(gin.Recovery())
 	e.Use(gin.LoggerWithWriter(&GinLogger{logger: logger}))
@@ -108,9 +115,6 @@ func NewGinHttpEngine(options ...HttpEngineOption) IHttpEngine {
 
 	// Create gin engine with the logger
 	e := CreateGinHttpEngine(l)
-
-	// Set gin to release mode (suppresses debug messages)
-	gin.SetMode(gin.ReleaseMode)
 
 	return &GinHttpEngine{
 		engine:          e,

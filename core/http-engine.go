@@ -24,6 +24,7 @@ type (
 	}
 )
 
+// Common util functions
 func mergeRestPath(paths ...string) string {
 	processedPaths := make([]string, 0)
 

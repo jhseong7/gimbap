@@ -10,6 +10,7 @@ import (
 type (
 	// Interface the controller must implement.
 	IController interface {
+		// The key method to get the route specs.
 		GetRouteSpecs() []RouteSpec
 	}
 
