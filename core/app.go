@@ -40,8 +40,9 @@ type (
 	}
 
 	AppOption struct {
-		AppName   string
-		AppModule *Module
+		AppName    string
+		AppModule  *Module
+		HttpEngine IHttpEngine
 	}
 
 	RuntimeOptions struct {
@@ -126,8 +127,19 @@ func CreateApp(option AppOption) *NassiApp {
 	// Setup global logger name
 	logger.SetAppName(option.AppName)
 
-	// Create a new Gin Engine
-	engine := NewEchoHttpEngine(HttpEngineOption{})
+	l := logger.NewLogger(logger.LoggerOption{
+		Name: "NassiApp",
+	})
+
+	if option.AppModule == nil {
+		l.Panic("AppModule is not set")
+	}
+
+	var engine IHttpEngine
+	if option.HttpEngine == nil {
+		l.Warn("HttpEngine is not set. Using default engine: GinHttpEngine")
+		engine = NewGinHttpEngine()
+	}
 
 	a := &NassiApp{
 		appModule: *option.AppModule,
@@ -137,9 +149,7 @@ func CreateApp(option AppOption) *NassiApp {
 
 		instanceMap: make(map[reflect.Type]reflect.Value),
 
-		logger: logger.NewLogger(logger.LoggerOption{
-			Name: "NassiApp",
-		}),
+		logger: l,
 
 		onStartListeners: []func(){},
 		onStopListeners:  []func(){},
