@@ -139,6 +139,8 @@ func CreateApp(option AppOption) *NassiApp {
 	if option.HttpEngine == nil {
 		l.Warn("HttpEngine is not set. Using default engine: GinHttpEngine")
 		engine = NewGinHttpEngine()
+	} else {
+		engine = option.HttpEngine
 	}
 
 	a := &NassiApp{
@@ -267,6 +269,14 @@ func (app *NassiApp) UseInjection(functions ...interface{}) {
 
 // Add middleware to the engine.
 func (app *NassiApp) AddMiddleware(middleware ...interface{}) {
+	if middleware == nil {
+		return
+	}
+
+	if app.engine == nil {
+		app.logger.Panic("HttpEngine is not set. Cannot add middleware")
+	}
+
 	app.engine.AddMiddleware(middleware...)
 }
 
@@ -275,7 +285,7 @@ func (app *NassiApp) Run(options ...RuntimeOptions) {
 	// Catch any panic and log it.
 	defer func() {
 		if r := recover(); r != nil {
-			app.logger.Fatal("Failed to start the app")
+			app.logger.Fatalf("Failed to start the app. %s", r)
 		}
 	}()
 

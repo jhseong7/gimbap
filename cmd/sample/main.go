@@ -7,16 +7,22 @@ import (
 )
 
 func main() {
-	app := core.CreateApp(core.AppOption{
-		AppName:   "SampleApp",
-		AppModule: sample.AppModule,
-	})
+	// app := core.CreateApp(core.AppOption{
+	// 	AppName:   "SampleApp",
+	// 	AppModule: sample.AppModule,
+	// })
 
 	// app.AddMiddleware(func(ctx *gin.Context) {
 	// 	ctx.Header("Access-Control-Allow-Origin", "*")
 	// 	ctx.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 	// 	ctx.Header("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 	// })
+
+	app := core.CreateApp(core.AppOption{
+		AppName:    "SampleAppEcho",
+		AppModule:  sample.AppModule,
+		HttpEngine: core.NewEchoHttpEngine(),
+	})
 
 	app.AddMiddleware(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(ctx echo.Context) error {

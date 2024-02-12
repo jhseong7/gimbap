@@ -6,6 +6,8 @@ import (
 
 	"github.com/jhseong7/nassi-golang/logger"
 	echo "github.com/labstack/echo/v4"
+
+	"github.com/labstack/echo/v4/middleware"
 )
 
 type (
@@ -95,6 +97,24 @@ func (e *EchoHttpEngine) Run(port int) {
 func CreateEchoHttpEngine(logger logger.Logger) (e *echo.Echo) {
 
 	e = echo.New()
+
+	// Don't show the banner of echo and the port number info (it's redundant)
+	e.HideBanner = true
+	e.HidePort = true
+
+	// Add the logger middleware to the engine
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogStatus: true,
+		LogURI:    true,
+		BeforeNextFunc: func(c echo.Context) {
+			c.Set("customValueFromContext", 42)
+		},
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			value, _ := c.Get("customValueFromContext").(int)
+			logger.Logf("REQUEST: uri: %v, status: %v, custom-value: %v\n", v.URI, v.Status, value)
+			return nil
+		},
+	}))
 
 	return
 }
