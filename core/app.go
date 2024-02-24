@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/jhseong7/nassi-golang/logger"
+	logger "github.com/jhseong7/ecl"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 )

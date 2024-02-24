@@ -3,7 +3,7 @@
 // This file defines the provider interface and its implementation.
 package core
 
-import "github.com/jhseong7/nassi-golang/logger"
+import logger "github.com/jhseong7/ecl"
 
 type (
 	ProviderDefinition struct {

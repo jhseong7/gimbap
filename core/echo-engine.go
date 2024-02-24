@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/jhseong7/nassi-golang/logger"
+	logger "github.com/jhseong7/ecl"
 	echo "github.com/labstack/echo/v4"
 
 	"github.com/labstack/echo/v4/middleware"
