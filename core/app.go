@@ -17,7 +17,7 @@ const (
 )
 
 type (
-	NassiApp struct {
+	GimbapApp struct {
 		appModule Module      // Root module for the app.
 		appOption AppOption   // Options for the app.
 		engine    IHttpEngine // The http engine that will handle RESTful requests.
@@ -54,7 +54,7 @@ type (
 )
 
 // Function to get a provider from the app.
-func GetProvider[T interface{}](app NassiApp, prov T) (ret T, err error) {
+func GetProvider[T interface{}](app GimbapApp, prov T) (ret T, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			app.logger.Panicf("provider not found: %s", reflect.TypeOf(prov).String())
@@ -67,7 +67,7 @@ func GetProvider[T interface{}](app NassiApp, prov T) (ret T, err error) {
 }
 
 // Prepares the provider and injection functions for the app.
-func (app *NassiApp) createInjectionInits() (provider, initInvoker fx.Option) {
+func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
 	// List to save all providers.
 	var opList []fx.Option = []fx.Option{}
 
@@ -123,7 +123,7 @@ func (app *NassiApp) createInjectionInits() (provider, initInvoker fx.Option) {
 }
 
 // Create a NassiApp instance.
-func CreateApp(option AppOption) *NassiApp {
+func CreateApp(option AppOption) *GimbapApp {
 	// Setup global logger name
 	logger.SetAppName(option.AppName)
 
@@ -143,7 +143,7 @@ func CreateApp(option AppOption) *NassiApp {
 		engine = option.HttpEngine
 	}
 
-	a := &NassiApp{
+	a := &GimbapApp{
 		appModule: *option.AppModule,
 		appOption: option,
 
@@ -160,17 +160,17 @@ func CreateApp(option AppOption) *NassiApp {
 	return a
 }
 
-func (app *NassiApp) AddStartListener(listener func()) {
+func (app *GimbapApp) AddStartListener(listener func()) {
 	app.onStartListeners = append(app.onStartListeners, listener)
 }
 
-func (app *NassiApp) AddStopListener(listener func()) {
+func (app *GimbapApp) AddStopListener(listener func()) {
 	app.onStopListeners = append(app.onStopListeners, listener)
 }
 
 // Retrieve the type of the return value of the instantiator function.
 // Also checks if the instantiator is a function with a single return value.
-func (app *NassiApp) deriveTypeFromInstantiator(instantiator interface{}) (reflect.Type, bool) {
+func (app *GimbapApp) deriveTypeFromInstantiator(instantiator interface{}) (reflect.Type, bool) {
 	funcType := reflect.TypeOf(instantiator)
 
 	if funcType.Kind() != reflect.Func {
@@ -188,7 +188,7 @@ func (app *NassiApp) deriveTypeFromInstantiator(instantiator interface{}) (refle
 }
 
 // Register the controller instances to the engine.
-func (app *NassiApp) registerControllerInstances() {
+func (app *GimbapApp) registerControllerInstances() {
 	// For all controllers
 	for _, c := range app.appModule.controllerMap {
 		// Get the return type of the instantiator (this will be the controller's type)
@@ -217,7 +217,7 @@ func (app *NassiApp) registerControllerInstances() {
 // The internal run function that will be called by fx.Invoke.
 //
 // This function will start the engine and call all the onStartListeners.
-func (app *NassiApp) run(lc fx.Lifecycle, runtimeOpts RuntimeOptions) {
+func (app *GimbapApp) run(lc fx.Lifecycle, runtimeOpts RuntimeOptions) {
 	// Initialize the engine
 	// Bind the controller instances to the engine and register the routes.
 	// This will automatically call the GetRouteSpecs function of each controller. (if it is implemented)
@@ -252,14 +252,15 @@ func (app *NassiApp) run(lc fx.Lifecycle, runtimeOpts RuntimeOptions) {
 // Set a custom logger for the app.
 //
 // This will override the default logger.
-func (app *NassiApp) SetCustomLogger(logger logger.Logger) {
+func (app *GimbapApp) SetCustomLogger(logger logger.Logger) {
 	app.logger = logger
 }
 
 // UseInjection is a function to add functions that will be called with the injection support.
 //
 // This is useful for initializing functions that need to use providers.
-func (app *NassiApp) UseInjection(functions ...interface{}) {
+func (app *GimbapApp) UseInjection(functions ...interface{}) {
+	// Initialize the functions list if it is nil.
 	if app.functionsWithInjection == nil {
 		app.functionsWithInjection = []interface{}{}
 	}
@@ -268,7 +269,8 @@ func (app *NassiApp) UseInjection(functions ...interface{}) {
 }
 
 // Add middleware to the engine.
-func (app *NassiApp) AddMiddleware(middleware ...interface{}) {
+func (app *GimbapApp) AddMiddleware(middleware ...interface{}) {
+	// Check if the engine is set.
 	if middleware == nil {
 		return
 	}
@@ -281,7 +283,7 @@ func (app *NassiApp) AddMiddleware(middleware ...interface{}) {
 }
 
 // The public start function that will start the app.
-func (app *NassiApp) Run(options ...RuntimeOptions) {
+func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	// Catch any panic and log it.
 	defer func() {
 		if r := recover(); r != nil {

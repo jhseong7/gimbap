@@ -1,13 +1,13 @@
-# NASSI Golang
+# GIMBAP - Go Injection Management for Better Application Programming
 
 ![Go](https://img.shields.io/badge/go-%2300ADD8.svg?style=for-the-badge&logo=go&logoColor=white)
 
-(N)estJS
-(A)nd
-(S)pring
-(S)imilarly
-(I)n
-Golang
+(G)o
+(I)njection
+(M)anagement for
+(B)etter
+(A)pplication
+(P)rogramming
 
 ## Introduction
 

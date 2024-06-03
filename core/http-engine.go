@@ -12,7 +12,7 @@ import (
 )
 
 type (
-	// TODO: make gin as a separate package
+	// The engine must implement this interface to be used in the app.
 	IHttpEngine interface {
 		RegisterController(rootPath string, controller IController)
 		Run(port int)

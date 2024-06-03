@@ -62,6 +62,8 @@ func (e *GinHttpEngine) RegisterController(rootPath string, instance IController
 		checkMethodValidity(routeSpec.Method)
 		fullPath := mergeRestPath(e.globalApiPrefix, rootPath, routeSpec.Path)
 
+		// Register the route
+		// Check if the handler is compatible with gin.HandlerFunc. else, panic so the user can fix it.
 		e.engine.Handle(routeSpec.Method, fullPath, e.checkAndCastToGinHandler(routeSpec.Handler))
 
 		// Get the name of the Handler function
