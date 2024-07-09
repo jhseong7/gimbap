@@ -6,12 +6,12 @@ import (
 	"github.com/jhseong7/gimbap/core/provider"
 )
 
-var FoodModuleEcho = core.DefineModule(core.ModuleOption{
-	Name: "FoodModuleEcho",
+var FoodModuleFiber = core.DefineModule(core.ModuleOption{
+	Name: "FoodModuleFiber",
 	Providers: []provider.ProviderDefinition{
 		*FoodProvider,
 	},
 	Controllers: []controller.ControllerDefinition{
-		*FoodControllerEchoProvider,
+		*FoodControllerFiberProvider,
 	},
 })

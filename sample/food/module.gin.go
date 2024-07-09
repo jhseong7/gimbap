@@ -7,7 +7,7 @@ import (
 )
 
 var FoodModuleGin = core.DefineModule(core.ModuleOption{
-	Name: "FoodModule",
+	Name: "FoodModuleGin",
 	Providers: []provider.ProviderDefinition{
 		*FoodProvider,
 	},

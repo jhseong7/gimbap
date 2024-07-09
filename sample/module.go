@@ -7,7 +7,7 @@ import (
 )
 
 var AppModuleGin = core.DefineModule(core.ModuleOption{
-	Name: "AppModule",
+	Name: "AppModuleGin",
 	SubModules: []core.Module{
 		*salt.SaltModuleGin,
 		*food.FoodModuleGin,
@@ -15,9 +15,17 @@ var AppModuleGin = core.DefineModule(core.ModuleOption{
 })
 
 var AppModuleEcho = core.DefineModule(core.ModuleOption{
-	Name: "AppModule",
+	Name: "AppModuleEcho",
 	SubModules: []core.Module{
 		*salt.SaltModuleEcho,
 		*food.FoodModuleEcho,
+	},
+})
+
+var AppModuleFiber = core.DefineModule(core.ModuleOption{
+	Name: "AppModuleFiber",
+	SubModules: []core.Module{
+		*salt.SaltModuleFiber,
+		*food.FoodModuleFiber,
 	},
 })
