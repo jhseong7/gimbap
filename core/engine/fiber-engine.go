@@ -23,6 +23,11 @@ type (
 		logger logger.Logger
 	}
 
+	FiberHttpEngineOption struct {
+		HttpEngineOption
+		FiberConfig fiber.Config
+	}
+
 	customLogger struct {
 		stdlog *log.Logger
 		logger logger.Logger
@@ -111,12 +116,12 @@ func (e *FiberHttpEngine) Run(port int) {
 	e.engine.Listen(fmt.Sprintf(":%d", port))
 }
 
-func CreateFiberHttpEngine(logger logger.Logger) (e *fiber.App) {
+func CreateFiberHttpEngine(logger logger.Logger, fiberConfig fiber.Config) (e *fiber.App) {
 	// Inject the custom logger to the fiber logger
 	// Initialize the custom logge
 
 	// TODO: maybe add a way to configure the fiber engine configs
-	e = fiber.New()
+	e = fiber.New(fiberConfig)
 
 	// TODO: fiber loggers?
 
@@ -124,9 +129,9 @@ func CreateFiberHttpEngine(logger logger.Logger) (e *fiber.App) {
 }
 
 // Create a new http engine (for now, gin is the only supported engine)
-func NewFiberHttpEngine(options ...HttpEngineOption) IHttpEngine {
+func NewFiberHttpEngine(options ...FiberHttpEngineOption) IHttpEngine {
 	// Get the options
-	var option HttpEngineOption
+	var option FiberHttpEngineOption
 	if len(options) > 0 {
 		option = options[0]
 	}
@@ -137,7 +142,7 @@ func NewFiberHttpEngine(options ...HttpEngineOption) IHttpEngine {
 	})
 
 	// Create gin engine with the logger
-	e := CreateFiberHttpEngine(l)
+	e := CreateFiberHttpEngine(l, option.FiberConfig)
 
 	return &FiberHttpEngine{
 		engine:          e,
