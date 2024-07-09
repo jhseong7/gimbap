@@ -1,4 +1,4 @@
-package food
+package salt
 
 import (
 	"github.com/jhseong7/gimbap/core"
@@ -6,12 +6,12 @@ import (
 	"github.com/jhseong7/gimbap/core/provider"
 )
 
-var FoodModuleEcho = core.DefineModule(core.ModuleOption{
-	Name: "FoodModuleEcho",
+var SaltModuleFiber = core.DefineModule(core.ModuleOption{
+	Name: "SaltModule",
 	Providers: []provider.ProviderDefinition{
-		*FoodProvider,
+		*SaltProvider,
 	},
 	Controllers: []controller.ControllerDefinition{
-		*FoodControllerEchoProvider,
+		*SaltControllerFiberProvider,
 	},
 })
