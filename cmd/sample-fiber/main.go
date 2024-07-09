@@ -9,9 +9,13 @@ import (
 
 func main() {
 	app := core.CreateApp(core.AppOption{
-		AppName:    "SampleAppFiber",
-		AppModule:  sample.AppModuleFiber,
-		HttpEngine: engine.NewFiberHttpEngine(),
+		AppName:   "SampleAppFiber",
+		AppModule: sample.AppModuleFiber,
+		HttpEngine: engine.NewFiberHttpEngine(engine.FiberHttpEngineOption{
+			FiberConfig: fiber.Config{
+				AppName: "SampleAppFiber",
+			},
+		}),
 	})
 
 	// Example of global middleware
