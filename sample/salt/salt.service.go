@@ -1,6 +1,8 @@
 package salt
 
-import "github.com/jhseong7/nassi-golang/core"
+import (
+	"github.com/jhseong7/gimbap/core/provider"
+)
 
 type (
 	SaltService struct {
@@ -18,7 +20,7 @@ func NewSalt() *SaltService {
 	}
 }
 
-var SaltProvider = core.DefineProvider(core.ProviderOption{
+var SaltProvider = provider.DefineProvider(provider.ProviderOption{
 	Name:         "SaltService",
 	Instantiator: NewSalt,
 })

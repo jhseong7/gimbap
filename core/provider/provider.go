@@ -1,14 +1,14 @@
 // file: provider.go
 //
 // This file defines the provider interface and its implementation.
-package core
+package provider
 
 import logger "github.com/jhseong7/ecl"
 
 type (
 	ProviderDefinition struct {
 		Name         string
-		instantiator interface{}
+		Instantiator interface{}
 	}
 
 	ProviderOption struct {
@@ -25,6 +25,6 @@ func DefineProvider(option ProviderOption) *ProviderDefinition {
 
 	return &ProviderDefinition{
 		Name:         option.Name,
-		instantiator: option.Instantiator,
+		Instantiator: option.Instantiator,
 	}
 }

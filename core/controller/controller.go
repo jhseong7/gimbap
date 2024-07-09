@@ -1,4 +1,4 @@
-package core
+package controller
 
 import (
 	"fmt"
@@ -18,7 +18,7 @@ type (
 	ControllerDefinition struct {
 		Name         string
 		RootPath     string
-		instantiator interface{}
+		Instantiator interface{}
 	}
 
 	RouteSpec struct {
@@ -64,6 +64,6 @@ func DefineController(option ControllerOption) *ControllerDefinition {
 	return &ControllerDefinition{
 		Name:         option.Name,
 		RootPath:     option.RootPath,
-		instantiator: option.Instantiator,
+		Instantiator: option.Instantiator,
 	}
 }

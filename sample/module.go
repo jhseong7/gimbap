@@ -1,15 +1,23 @@
 package sample
 
 import (
-	"github.com/jhseong7/nassi-golang/core"
-	"github.com/jhseong7/nassi-golang/sample/food"
-	"github.com/jhseong7/nassi-golang/sample/salt"
+	"github.com/jhseong7/gimbap/core"
+	"github.com/jhseong7/gimbap/sample/food"
+	"github.com/jhseong7/gimbap/sample/salt"
 )
 
-var AppModule = core.DefineModule(core.ModuleOption{
+var AppModuleGin = core.DefineModule(core.ModuleOption{
 	Name: "AppModule",
 	SubModules: []core.Module{
-		*salt.SaltModule,
-		*food.FoodModule,
+		*salt.SaltModuleGin,
+		*food.FoodModuleGin,
+	},
+})
+
+var AppModuleEcho = core.DefineModule(core.ModuleOption{
+	Name: "AppModule",
+	SubModules: []core.Module{
+		*salt.SaltModuleEcho,
+		*food.FoodModuleEcho,
 	},
 })
