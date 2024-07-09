@@ -1,4 +1,4 @@
-module github.com/jhseong7/nassi-golang
+module github.com/jhseong7/gimbap
 
 go 1.21.5
 

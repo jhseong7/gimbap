@@ -2,19 +2,21 @@
 //
 // This file defines the http engine interface and its implementation. The http engine is responsible for handling RESTful requests.
 // This framework uses gin as the default http engine.
-package core
+package engine
 
 import (
 	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
+
+	"github.com/jhseong7/gimbap/core/controller"
 )
 
 type (
 	// The engine must implement this interface to be used in the app.
 	IHttpEngine interface {
-		RegisterController(rootPath string, controller IController)
+		RegisterController(rootPath string, controller controller.IController)
 		Run(port int)
 		AddMiddleware(middleware ...interface{})
 	}

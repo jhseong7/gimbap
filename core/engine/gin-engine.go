@@ -1,4 +1,4 @@
-package core
+package engine
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/gimbap/core/controller"
 )
 
 type (
@@ -49,7 +50,7 @@ func (e *GinHttpEngine) checkAndCastToGinHandler(handler interface{}) gin.Handle
 	return handler.(func(*gin.Context))
 }
 
-func (e *GinHttpEngine) RegisterController(rootPath string, instance IController) {
+func (e *GinHttpEngine) RegisterController(rootPath string, instance controller.IController) {
 	defer func() {
 		if r := recover(); r != nil {
 			e.logger.Panicf("Failed to register controller to path: %s", rootPath)

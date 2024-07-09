@@ -1,10 +1,12 @@
-package core
+package engine
 
 import (
 	"fmt"
 	"reflect"
 
 	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/gimbap/core/controller"
+
 	echo "github.com/labstack/echo/v4"
 
 	"github.com/labstack/echo/v4/middleware"
@@ -54,7 +56,7 @@ func (e *EchoHttpEngine) checkAndCastToEchoMiddlewareHandler(handler interface{}
 	return handler.(func(echo.HandlerFunc) echo.HandlerFunc)
 }
 
-func (e *EchoHttpEngine) RegisterController(rootPath string, instance IController) {
+func (e *EchoHttpEngine) RegisterController(rootPath string, instance controller.IController) {
 	defer func() {
 		if r := recover(); r != nil {
 			e.logger.Panicf("Failed to register controller to path: %s", rootPath)

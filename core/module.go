@@ -5,6 +5,8 @@ package core
 
 import (
 	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/gimbap/core/controller"
+	"github.com/jhseong7/gimbap/core/provider"
 )
 
 type (
@@ -14,9 +16,9 @@ type (
 
 		// Provider map of all providers in this module (that is exported)
 		// key: provider name, value: provider.
-		providerMap map[string]*ProviderDefinition
+		providerMap map[string]*provider.ProviderDefinition
 
-		controllerMap map[string]*ControllerDefinition
+		controllerMap map[string]*controller.ControllerDefinition
 	}
 
 	ModuleOption struct {
@@ -27,10 +29,10 @@ type (
 		SubModules []Module
 
 		// List of providers that this module provides.
-		Providers []ProviderDefinition
+		Providers []provider.ProviderDefinition
 
 		// Rest controllers
-		Controllers []ControllerDefinition
+		Controllers []controller.ControllerDefinition
 	}
 )
 
@@ -39,8 +41,8 @@ func DefineModule(option ModuleOption) *Module {
 		logger.NewLogger(logger.LoggerOption{Name: "DefineModule"}).Panicf("Controller name cannot be empty")
 	}
 
-	providerMap := map[string]*ProviderDefinition{}
-	controllerMap := map[string]*ControllerDefinition{}
+	providerMap := map[string]*provider.ProviderDefinition{}
+	controllerMap := map[string]*controller.ControllerDefinition{}
 
 	// For all given imports and providers, create fx.Option
 	for _, m := range option.SubModules {

@@ -5,8 +5,8 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/jhseong7/nassi-golang/core"
-	"github.com/jhseong7/nassi-golang/sample/salt"
+	"github.com/jhseong7/gimbap/core/provider"
+	"github.com/jhseong7/gimbap/sample/salt"
 )
 
 type (
@@ -29,7 +29,7 @@ func NewFood(salt *salt.SaltService) *FoodService {
 	}
 }
 
-var FoodProvider = core.DefineProvider(core.ProviderOption{
+var FoodProvider = provider.DefineProvider(provider.ProviderOption{
 	Name:         "FoodService",
 	Instantiator: NewFood,
 })
