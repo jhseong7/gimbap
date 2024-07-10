@@ -124,13 +124,13 @@ func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
 	return
 }
 
-// Create a NassiApp instance.
+// Create a Gimbap instance.
 func CreateApp(option AppOption) *GimbapApp {
 	// Setup global logger name
 	logger.SetAppName(option.AppName)
 
 	l := logger.NewLogger(logger.LoggerOption{
-		Name: "NassiApp",
+		Name: "Gimbap",
 	})
 
 	if option.AppModule == nil {
