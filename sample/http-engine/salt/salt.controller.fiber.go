@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/jhseong7/gimbap/core/controller"
+	"github.com/jhseong7/gimbap/controller"
 )
 
 type (

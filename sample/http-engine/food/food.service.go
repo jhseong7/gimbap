@@ -5,8 +5,8 @@ import (
 	"math"
 	"math/rand"
 
-	"github.com/jhseong7/gimbap/core/provider"
-	"github.com/jhseong7/gimbap/sample/salt"
+	"github.com/jhseong7/gimbap/provider"
+	"github.com/jhseong7/gimbap/sample/http-engine/salt"
 )
 
 type (

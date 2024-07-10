@@ -2,8 +2,8 @@ package sample
 
 import (
 	"github.com/jhseong7/gimbap/core"
-	"github.com/jhseong7/gimbap/sample/food"
-	"github.com/jhseong7/gimbap/sample/salt"
+	"github.com/jhseong7/gimbap/sample/http-engine/food"
+	"github.com/jhseong7/gimbap/sample/http-engine/salt"
 )
 
 var AppModuleGin = core.DefineModule(core.ModuleOption{

@@ -5,7 +5,7 @@ import (
 	"reflect"
 
 	logger "github.com/jhseong7/ecl"
-	"github.com/jhseong7/gimbap/core/controller"
+	"github.com/jhseong7/gimbap/controller"
 
 	echo "github.com/labstack/echo/v4"
 

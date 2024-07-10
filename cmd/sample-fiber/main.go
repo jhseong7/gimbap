@@ -3,8 +3,8 @@ package main
 import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/jhseong7/gimbap/core"
-	"github.com/jhseong7/gimbap/core/engine"
-	sample "github.com/jhseong7/gimbap/sample/http-adapter"
+	"github.com/jhseong7/gimbap/engine"
+	sample "github.com/jhseong7/gimbap/sample/http-engine"
 )
 
 func main() {

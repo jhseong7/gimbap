@@ -5,8 +5,8 @@ package core
 
 import (
 	logger "github.com/jhseong7/ecl"
-	"github.com/jhseong7/gimbap/core/controller"
-	"github.com/jhseong7/gimbap/core/provider"
+	"github.com/jhseong7/gimbap/controller"
+	"github.com/jhseong7/gimbap/provider"
 )
 
 type (

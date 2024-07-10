@@ -10,7 +10,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/jhseong7/gimbap/core/controller"
+	"github.com/jhseong7/gimbap/controller"
 )
 
 type (

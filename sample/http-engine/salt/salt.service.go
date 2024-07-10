@@ -1,7 +1,7 @@
 package salt
 
 import (
-	"github.com/jhseong7/gimbap/core/provider"
+	"github.com/jhseong7/gimbap/provider"
 )
 
 type (

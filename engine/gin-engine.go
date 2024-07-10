@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	logger "github.com/jhseong7/ecl"
-	"github.com/jhseong7/gimbap/core/controller"
+	"github.com/jhseong7/gimbap/controller"
 )
 
 type (

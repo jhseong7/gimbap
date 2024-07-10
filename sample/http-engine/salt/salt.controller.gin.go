@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jhseong7/gimbap/core/controller"
+	"github.com/jhseong7/gimbap/controller"
 )
 
 type (

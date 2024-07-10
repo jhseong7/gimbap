@@ -8,8 +8,8 @@ import (
 	"reflect"
 
 	logger "github.com/jhseong7/ecl"
-	"github.com/jhseong7/gimbap/core/controller"
-	"github.com/jhseong7/gimbap/core/engine"
+	"github.com/jhseong7/gimbap/controller"
+	"github.com/jhseong7/gimbap/engine"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 )
