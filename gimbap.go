@@ -1,4 +1,4 @@
-package nassi
+package gimbap
 
 import "fmt"
 
