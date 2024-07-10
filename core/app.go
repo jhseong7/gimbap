@@ -271,9 +271,12 @@ func (app *GimbapApp) UseInjection(functions ...interface{}) {
 }
 
 // Add middleware to the engine.
+//
+// This will be added as a global middleware to the engine.
 func (app *GimbapApp) AddMiddleware(middleware ...interface{}) {
 	// Check if the engine is set.
 	if middleware == nil {
+		app.logger.Warn("Middleware is nil. Skipping")
 		return
 	}
 

@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/jhseong7/gimbap/core"
 	"github.com/jhseong7/gimbap/core/engine"
-	"github.com/jhseong7/gimbap/sample"
+	sample "github.com/jhseong7/gimbap/sample/http-adapter"
 	"github.com/labstack/echo/v4"
 )
 

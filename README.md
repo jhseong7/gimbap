@@ -77,7 +77,7 @@ This framework provides the following features:
   - All services, repos that require DI must be specified in the right way
 - ORM adapters
   - external module. This will be vendor-locked to that specific module.
-  - initial support will start with `gORM`
+  - initial support will start with `gORM` and `prisma-go`
 - Config manager (dotenv, config service)
 - Container based server control
   - Container isolation like NestJS or Spring

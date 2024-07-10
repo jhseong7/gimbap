@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/jhseong7/gimbap/core"
-	"github.com/jhseong7/gimbap/sample"
+	sample "github.com/jhseong7/gimbap/sample/http-adapter"
 )
 
 func main() {
