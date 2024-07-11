@@ -1,7 +1,7 @@
 // File: module.go
 //
 // This file defines the module interface.
-package core
+package module
 
 import (
 	logger "github.com/jhseong7/ecl"
@@ -89,4 +89,12 @@ func DefineModule(option ModuleOption) *Module {
 		providerMap:   providerMap,
 		controllerMap: controllerMap,
 	}
+}
+
+func (m *Module) GetProviderMap() map[string]*provider.ProviderDefinition {
+	return m.providerMap
+}
+
+func (m *Module) GetControllerMap() map[string]*controller.ControllerDefinition {
+	return m.controllerMap
 }

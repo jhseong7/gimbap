@@ -1,4 +1,4 @@
-package core
+package app
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	logger "github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/engine"
+	"github.com/jhseong7/gimbap/module"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
 )
@@ -20,7 +21,7 @@ const (
 
 type (
 	GimbapApp struct {
-		appModule Module             // Root module for the app.
+		appModule module.Module      // Root module for the app.
 		appOption AppOption          // Options for the app.
 		engine    engine.IHttpEngine // The http engine that will handle RESTful requests.
 
@@ -43,7 +44,7 @@ type (
 
 	AppOption struct {
 		AppName    string
-		AppModule  *Module
+		AppModule  *module.Module
 		HttpEngine engine.IHttpEngine
 	}
 
@@ -76,7 +77,7 @@ func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
 	// List to save return types of all providers.
 	returnTypeList := []reflect.Type{}
 
-	for _, p := range app.appModule.providerMap {
+	for _, p := range app.appModule.GetProviderMap() {
 		// Add the instantiator to the optionList
 		opList = append(opList, fx.Provide(p.Instantiator))
 
@@ -89,7 +90,7 @@ func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
 	}
 
 	// Process controller maps
-	for _, c := range app.appModule.controllerMap {
+	for _, c := range app.appModule.GetControllerMap() {
 		// Add the instantiator to the optionList
 		opList = append(opList, fx.Provide(c.Instantiator))
 
@@ -192,7 +193,7 @@ func (app *GimbapApp) deriveTypeFromInstantiator(instantiator interface{}) (refl
 // Register the controller instances to the engine.
 func (app *GimbapApp) registerControllerInstances() {
 	// For all controllers
-	for _, c := range app.appModule.controllerMap {
+	for _, c := range app.appModule.GetControllerMap() {
 		// Get the return type of the instantiator (this will be the controller's type)
 		instanceType, ok := app.deriveTypeFromInstantiator(c.Instantiator)
 		if !ok {
