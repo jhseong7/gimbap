@@ -41,3 +41,15 @@ func CreateApp(option app.AppOption) *app.GimbapApp {
 func GetProvider[T interface{}](a app.GimbapApp, prov T) (ret T, err error) {
 	return app.GetProvider(a, prov)
 }
+
+func DefineModule(option module.ModuleOption) *module.Module {
+	return module.DefineModule(option)
+}
+
+func DefineProvider(option provider.ProviderOption) *provider.ProviderDefinition {
+	return provider.DefineProvider(option)
+}
+
+func DefineController(option controller.ControllerOption) *controller.ControllerDefinition {
+	return controller.DefineController(option)
+}
