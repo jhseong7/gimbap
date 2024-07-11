@@ -21,9 +21,11 @@ type (
 
 	// Provider related
 	ProviderDefinition = provider.ProviderDefinition
+	ProviderOption     = provider.ProviderOption
 
 	// Controller related
 	IController          = controller.IController
+	ControllerOption     = controller.ControllerOption
 	ControllerDefinition = controller.ControllerDefinition
 	RouteSpec            = controller.RouteSpec
 
