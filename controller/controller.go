@@ -15,7 +15,7 @@ type (
 	}
 
 	// RESTful controller.
-	ControllerDefinition struct {
+	Controller struct {
 		Name         string
 		RootPath     string
 		Instantiator interface{}
@@ -54,14 +54,14 @@ func checkInstantiatorInterface(instantiator interface{}) {
 }
 
 // Define a controller
-func DefineController(option ControllerOption) *ControllerDefinition {
+func DefineController(option ControllerOption) *Controller {
 	checkInstantiatorInterface(option.Instantiator)
 
 	if option.Name == "" {
 		logger.NewLogger(logger.LoggerOption{Name: "DefineController"}).Panicf("Controller name cannot be empty")
 	}
 
-	return &ControllerDefinition{
+	return &Controller{
 		Name:         option.Name,
 		RootPath:     option.RootPath,
 		Instantiator: option.Instantiator,

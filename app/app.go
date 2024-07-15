@@ -57,7 +57,10 @@ type (
 )
 
 // Function to get a provider from the app.
-func GetProvider[T interface{}](app GimbapApp, prov T) (ret T, err error) {
+//
+// Provide the app and the provider type to get the provider instance.
+// If the provider is not found, it will panic.
+func GetProvider[T interface{}](app GimbapApp, prov T) (ret T) {
 	defer func() {
 		if r := recover(); r != nil {
 			app.logger.Panicf("provider not found: %s", reflect.TypeOf(prov).String())
@@ -126,6 +129,8 @@ func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
 }
 
 // Create a Gimbap instance.
+//
+// This is the entry point to create a Gimbap application.
 func CreateApp(option AppOption) *GimbapApp {
 	// Setup global logger name
 	logger.SetAppName(option.AppName)
