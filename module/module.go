@@ -16,9 +16,9 @@ type (
 
 		// Provider map of all providers in this module (that is exported)
 		// key: provider name, value: provider.
-		providerMap map[string]*provider.ProviderDefinition
+		providerMap map[string]*provider.Provider
 
-		controllerMap map[string]*controller.ControllerDefinition
+		controllerMap map[string]*controller.Controller
 	}
 
 	ModuleOption struct {
@@ -29,10 +29,10 @@ type (
 		SubModules []Module
 
 		// List of providers that this module provides.
-		Providers []provider.ProviderDefinition
+		Providers []provider.Provider
 
 		// Rest controllers
-		Controllers []controller.ControllerDefinition
+		Controllers []controller.Controller
 	}
 )
 
@@ -41,8 +41,8 @@ func DefineModule(option ModuleOption) *Module {
 		logger.NewLogger(logger.LoggerOption{Name: "DefineModule"}).Panicf("Controller name cannot be empty")
 	}
 
-	providerMap := map[string]*provider.ProviderDefinition{}
-	controllerMap := map[string]*controller.ControllerDefinition{}
+	providerMap := map[string]*provider.Provider{}
+	controllerMap := map[string]*controller.Controller{}
 
 	// For all given imports and providers, create fx.Option
 	for _, m := range option.SubModules {
@@ -91,10 +91,10 @@ func DefineModule(option ModuleOption) *Module {
 	}
 }
 
-func (m *Module) GetProviderMap() map[string]*provider.ProviderDefinition {
+func (m *Module) GetProviderMap() map[string]*provider.Provider {
 	return m.providerMap
 }
 
-func (m *Module) GetControllerMap() map[string]*controller.ControllerDefinition {
+func (m *Module) GetControllerMap() map[string]*controller.Controller {
 	return m.controllerMap
 }

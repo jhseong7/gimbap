@@ -1,9 +1,11 @@
+// Alias public types and functions for the package gimbap.
 package gimbap
 
 import (
 	"github.com/jhseong7/gimbap/app"
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/engine"
+	"github.com/jhseong7/gimbap/microservice"
 	"github.com/jhseong7/gimbap/module"
 	"github.com/jhseong7/gimbap/provider"
 )
@@ -20,38 +22,58 @@ type (
 	Module       = module.Module
 
 	// Provider related
-	ProviderDefinition = provider.ProviderDefinition
+	ProviderDefinition = provider.Provider
 	ProviderOption     = provider.ProviderOption
 
 	// Controller related
 	IController          = controller.IController
 	ControllerOption     = controller.ControllerOption
-	ControllerDefinition = controller.ControllerDefinition
+	ControllerDefinition = controller.Controller
 	RouteSpec            = controller.RouteSpec
 
 	// Engine related
 	IHttpEngine      = engine.IHttpEngine
 	HttpEngineOption = engine.HttpEngineOption
+
+	// Microservice related
+	IMicroService = microservice.IMicroService
 )
 
-// Public entry point to create a Gimbap application.
+// Create a Gimbap instance.
+//
+// This is the entry point to create a Gimbap application.
 func CreateApp(option app.AppOption) *app.GimbapApp {
 	return app.CreateApp(option)
 }
 
-// Public to retrive the injected provider.
-func GetProvider[T interface{}](a app.GimbapApp, prov T) (ret T, err error) {
+// Function to get a provider from the app.
+//
+// Provide the app and the provider type to get the provider instance.
+// If the provider is not found, it will panic.
+func GetProvider[T interface{}](a app.GimbapApp, prov T) (ret T) {
 	return app.GetProvider(a, prov)
 }
 
+// Define a module.
+//
+// This defines a module with the given option.
+// The module is used to determine the dependencies of the providers.
 func DefineModule(option module.ModuleOption) *module.Module {
 	return module.DefineModule(option)
 }
 
-func DefineProvider(option provider.ProviderOption) *provider.ProviderDefinition {
+// Define a provider.
+//
+// This defines a provider with the given option.
+// The provider will be registered to the app and can be injected to the controllers.
+func DefineProvider(option provider.ProviderOption) *provider.Provider {
 	return provider.DefineProvider(option)
 }
 
-func DefineController(option controller.ControllerOption) *controller.ControllerDefinition {
+// Define a controller.
+//
+// Defines a special provider that is used to handle RESTful requests.
+// The controller will be registered to the app and can be injected to the other controllers.
+func DefineController(option controller.ControllerOption) *controller.Controller {
 	return controller.DefineController(option)
 }

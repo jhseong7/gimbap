@@ -6,7 +6,7 @@ package provider
 import logger "github.com/jhseong7/ecl"
 
 type (
-	ProviderDefinition struct {
+	Provider struct {
 		Name         string
 		Instantiator interface{}
 	}
@@ -18,12 +18,12 @@ type (
 )
 
 // Define a provider
-func DefineProvider(option ProviderOption) *ProviderDefinition {
+func DefineProvider(option ProviderOption) *Provider {
 	if option.Name == "" {
 		logger.NewLogger(logger.LoggerOption{Name: "DefineProvider"}).Panicf("Provider name cannot be empty")
 	}
 
-	return &ProviderDefinition{
+	return &Provider{
 		Name:         option.Name,
 		Instantiator: option.Instantiator,
 	}
