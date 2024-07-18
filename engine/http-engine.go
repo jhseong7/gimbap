@@ -18,6 +18,7 @@ type (
 	IHttpEngine interface {
 		RegisterController(rootPath string, controller controller.IController)
 		Run(port int)
+		Stop()
 		AddMiddleware(middleware ...interface{})
 	}
 

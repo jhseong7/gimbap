@@ -2,14 +2,16 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"log"
-	"net/http"
+	"os"
+	"os/signal"
 	"reflect"
+	"syscall"
 
 	logger "github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/engine"
+	"github.com/jhseong7/gimbap/microservice"
 	"github.com/jhseong7/gimbap/module"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
@@ -40,6 +42,9 @@ type (
 
 		// Function to run with the injection support
 		functionsWithInjection []interface{}
+
+		// microservice list
+		microservices []microservice.MicroServiceProvider
 	}
 
 	AppOption struct {
@@ -73,6 +78,8 @@ func GetProvider[T interface{}](app GimbapApp, prov T) (ret T) {
 }
 
 // Prepares the provider and injection functions for the app.
+// Fx. does not initialize any providers unless they are explicitly called through fx.Invoke
+// This method creates a list of providers to use in the fx.Invoke function from the given root Module
 func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
 	// List to save all providers.
 	var opList []fx.Option = []fx.Option{}
@@ -98,6 +105,19 @@ func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
 		opList = append(opList, fx.Provide(c.Instantiator))
 
 		funcType := reflect.TypeOf(c.Instantiator)
+
+		// Get the output types and save them to returnTypeList
+		for i := 0; i < funcType.NumOut(); i++ {
+			returnTypeList = append(returnTypeList, funcType.Out(i))
+		}
+	}
+
+	// Process Microservices
+	for _, m := range app.microservices {
+		// Add the instantiator to the optionList
+		opList = append(opList, fx.Provide(m.Instantiator))
+
+		funcType := reflect.TypeOf(m.Instantiator)
 
 		// Get the output types and save them to returnTypeList
 		for i := 0; i < funcType.NumOut(); i++ {
@@ -231,11 +251,30 @@ func (app *GimbapApp) run(lc fx.Lifecycle, runtimeOpts RuntimeOptions) {
 	// This will automatically call the GetRouteSpecs function of each controller. (if it is implemented)
 	app.registerControllerInstances()
 
+	// Register a SIGTEM, SIGINT listener to stop the app gracefully.
+	// This will trigger the engine to stop --> calling an end to the app's lifecycle.
+	// This will also call all the onStopListeners.
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigs
+		app.logger.Logf("Received signal: %s", sig)
+
+		// Stop the main engine to break the loop
+		app.engine.Stop()
+	}()
+
 	lc.Append(fx.Hook{
 		OnStart: func(context.Context) error {
 			// NOTE: change this to go routine if there is a risk for deadlock.
 			for _, listener := range app.onStartListeners {
 				listener()
+			}
+
+			// Start the microservices if exists
+			if len(app.microservices) > 0 {
+				app.startMicroServices()
 			}
 
 			// Start the engine
@@ -248,6 +287,11 @@ func (app *GimbapApp) run(lc fx.Lifecycle, runtimeOpts RuntimeOptions) {
 			// NOTE: change this to go routine if there is a risk for deadlock.
 			for _, listener := range app.onStopListeners {
 				listener()
+			}
+
+			// Stop the microservices if exists
+			if len(app.microservices) > 0 {
+				app.stopMicroServices()
 			}
 
 			app.logger.Log("App stopped")
@@ -291,6 +335,92 @@ func (app *GimbapApp) AddMiddleware(middleware ...interface{}) {
 	}
 
 	app.engine.AddMiddleware(middleware...)
+}
+
+// Add a microservice to the app.
+//
+// This will add a microservice to the app.
+// The microservice will start with the app.
+// Multiple microservices can be added.
+func (app *GimbapApp) AddMicroServices(microservices ...microservice.MicroServiceProvider) {
+	if microservices == nil {
+		app.logger.Warn("(AddMicroServices) At least 1 microservice must be added to use this API. Skipping.")
+		return
+	}
+
+	app.logger.Logf("Adding %d microservices", len(microservices))
+	for _, m := range microservices {
+		app.logger.Logf("Registering microservice: %s", m.Name)
+
+		// Register the microservice as a provider and add it to the microservice list.
+		app.microservices = append(app.microservices, m)
+	}
+}
+
+// Check if the microservices are a valid type (implements IMicroService),
+// then start the microservices using go routines. (non-blocking)
+func (app *GimbapApp) startMicroServices() {
+	for _, m := range app.microservices {
+		// Get the return type
+		instanceType, ok := app.deriveTypeFromInstantiator(m.Instantiator)
+		if !ok {
+			app.logger.Panicf("Failed to derive type from instantiator: %s", m.Instantiator)
+		}
+
+		// Get the instance from the instance map
+		instVal, ok := app.instanceMap[instanceType]
+		if !ok {
+			app.logger.Panicf("Microservice instance not found in instance map: %s", instanceType.String())
+		}
+
+		// Check if the instance implements IMicroService
+		if !microservice.IsMicroService(instVal.Interface()) {
+			app.logger.Panicf("Microservice instance does not implement IMicroService: %s", instanceType.String())
+		}
+
+		// Start the microservice
+		go instVal.Interface().(microservice.IMicroService).Start()
+
+		app.logger.Logf("Microservice started: %s", m.Name)
+	}
+}
+
+// Stop the microservices gracefully.
+func (app *GimbapApp) stopMicroServices() {
+	app.logger.Log("Stopping microservices")
+
+	for _, m := range app.microservices {
+		// Get the return type
+		instanceType, ok := app.deriveTypeFromInstantiator(m.Instantiator)
+		if !ok {
+			app.logger.Panicf("Failed to derive type from instantiator: %s", m.Instantiator)
+		}
+
+		// Get the instance from the instance map
+		instVal, ok := app.instanceMap[instanceType]
+		if !ok {
+			app.logger.Panicf("Microservice instance not found in instance map: %s", instanceType.String())
+		}
+
+		// Check if the instance implements IMicroService
+		if !microservice.IsMicroService(instVal.Interface()) {
+			app.logger.Panicf("Microservice instance does not implement IMicroService: %s", instanceType.String())
+		}
+
+		// Stop the microservice (don't use a go routine as we want to stop the app gracefully)
+		instVal.Interface().(microservice.IMicroService).Stop()
+
+		app.logger.Logf("Microservice stopped: %s", m.Name)
+	}
+}
+
+// Stop the app
+func (app *GimbapApp) Stop() {
+	stopCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := app.fxApp.Stop(stopCtx); err != nil {
+		log.Fatal(err)
+	}
 }
 
 // The public start function that will start the app.
@@ -340,10 +470,6 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	startCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	if err := app.fxApp.Start(startCtx); err != nil {
-		log.Fatal(err)
-	}
-
-	if _, err := http.Get(fmt.Sprintf("http://localhost:%d/", option.Port)); err != nil {
 		log.Fatal(err)
 	}
 

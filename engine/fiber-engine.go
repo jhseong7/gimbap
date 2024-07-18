@@ -116,6 +116,14 @@ func (e *FiberHttpEngine) Run(port int) {
 	e.engine.Listen(fmt.Sprintf(":%d", port))
 }
 
+func (e *FiberHttpEngine) Stop() {
+	e.logger.Log("Stopping the http engine")
+
+	if err := e.engine.Shutdown(); err != nil {
+		e.logger.Fatalf("Failed to shutdown the http engine: %v", err)
+	}
+}
+
 func CreateFiberHttpEngine(logger logger.Logger, fiberConfig fiber.Config) (e *fiber.App) {
 	// Inject the custom logger to the fiber logger
 	// Initialize the custom logge

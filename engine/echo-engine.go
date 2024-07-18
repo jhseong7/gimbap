@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"reflect"
+	"time"
 
 	logger "github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
@@ -93,7 +95,21 @@ func (e *EchoHttpEngine) Run(port int) {
 	}
 
 	e.logger.Logf("Starting the http engine on port %d\n", port)
-	e.logger.Fatal(e.engine.Start(fmt.Sprintf(":%d", port)).Error())
+	e.engine.Start(fmt.Sprintf(":%d", port))
+}
+
+func (e *EchoHttpEngine) Stop() {
+	e.logger.Log("Stopping the http engine")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := e.engine.Shutdown(ctx); err != nil {
+		e.logger.Fatalf("Failed to shutdown the http engine: %v", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		e.logger.Warn("Server failed to shutdown gracefully with in 5 seconds")
+	}
 }
 
 func CreateEchoHttpEngine(logger logger.Logger) (e *echo.Echo) {
