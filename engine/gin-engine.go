@@ -131,7 +131,7 @@ func CreateGinHttpEngine(logger logger.Logger) (e *gin.Engine) {
 }
 
 // Create a new http engine (for now, gin is the only supported engine)
-func NewGinHttpEngine(options ...HttpEngineOption) IHttpEngine {
+func NewGinHttpEngine(options ...HttpEngineOption) *GinHttpEngine {
 	// Get the options
 	var option HttpEngineOption
 	if len(options) > 0 {
