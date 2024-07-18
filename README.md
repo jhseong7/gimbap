@@ -9,6 +9,10 @@
 (A)pplication
 (P)rogramming
 
+## Why GIMBAP?
+
+Gimbap is a Korean-style see-weed roll that is similar to sushi. It is a simple and easy to make dish that is popular in Korea. The name GIMBAP is chosen as the accronym because it's one of my favourite dishes!.
+
 ## Introduction
 
 This is a Go Web framework inspired by Nest.JS and Spring, introducing similar patterns of the frameworks and adapt it to the Golang style pattern
@@ -64,6 +68,95 @@ class TestController {
 
 For small applications, the current pattern should work fine, but as projects grow and get bigger, AOPs help to manage the code in a managed way.
 
+For example, imagine a group of classes/structs that have a dependency graph as below
+
+```mermaid
+flowchart TD
+    A --> B
+    A --> C
+    C --> D
+```
+
+in classic Go and Gin, you would have to initialize the dependencies in the main function and pass it to the handler.
+
+```golang
+func main() {
+    a := NewA()
+    b := NewB(a)
+    c := NewC(a)
+    d := NewD(c)
+}
+```
+
+Then if a new dependency is added like below, you would have to modify the main function and all the handlers that use the dependency.
+
+```mermaid
+flowchart TD
+    A --> B
+    A --> C
+    C --> D
+    C --> E
+    A --> D
+```
+
+```golang
+func main() {
+    a := NewA()
+    b := NewB(a)
+    c := NewC(a)
+    d := NewD(c, a)
+    e := NewE(d)
+}
+```
+
+Like this if dependecies grow, the difficulty of managing the dependencies manually will grow as well. Go has many DI libraries like `uber/fx`, `google/wire`, `facebookgo/inject` but they are more focused on DI itself.
+
+As a Go newbie, I found it rather unusual to manage dependencies in Go compared to other frameworks I used (like Spring, NestJS) thus I decided to create a framework that will help manage dependencies in a more structured way. Resulting in a new framework with a simple structured way like below.
+
+```golang
+package example
+
+import "github.com/jhseong7/gimbap"
+
+var RootModule = gimbap.DefineModule(gimbap.ModuleOption{
+	Name: "RootModule",
+	SubModules: []gimbap.Module{
+		*ProviderA,
+		*ProviderB,
+    *ProviderC,
+    *ProviderD,
+    *ProviderE
+	},
+})
+
+func main() {
+  app := gimbap.CreateApp(gimbap.AppOption{
+    Name: "ExampleApp",
+    AppModule: RootModule,
+  })
+
+  app.Run()
+}
+```
+
+GIMBAP will allow to flexibly manage, add remove or delete, dependencies in a structured with similar MVC/AOP like patterns like Spring or NestJS.
+
+Please check the documentation and samples for more information.
+
+## Documentation
+
+[Documentation](doc/documentation.md)
+
+## Installation
+
+```shell
+go get github.com/jhseong7/gimbap
+```
+
+## Sample Code
+
+[Sample Repo](https://github.com/jhseong7/gimbap-sample)
+
 ## Goals
 
 This framework provides the following features:
@@ -85,6 +178,11 @@ This framework provides the following features:
 - Panic handle middleware support
 - Interceptor, Guard support
 
-## Sample Code
+## Third-Party Libraries
 
-[Sample Repo](https://github.com/jhseong7/gimbap-sample)
+This project uses the following third-party libraries:
+
+- **Library Name:** uber-go/fx
+  - **Purpose:** Used managing dependency injection with-in the app
+  - **License:** MIT License. [Link](https://github.com/uber-go/fx/blob/master/LICENSE)
+  - **Link:** [https://github.com/uber-go/fx](https://github.com/uber-go/fx)
