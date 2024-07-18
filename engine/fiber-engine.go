@@ -137,7 +137,7 @@ func CreateFiberHttpEngine(logger logger.Logger, fiberConfig fiber.Config) (e *f
 }
 
 // Create a new http engine (for now, gin is the only supported engine)
-func NewFiberHttpEngine(options ...FiberHttpEngineOption) IHttpEngine {
+func NewFiberHttpEngine(options ...FiberHttpEngineOption) *FiberHttpEngine {
 	// Get the options
 	var option FiberHttpEngineOption
 	if len(options) > 0 {

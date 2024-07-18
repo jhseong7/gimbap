@@ -138,7 +138,7 @@ func CreateEchoHttpEngine(logger logger.Logger) (e *echo.Echo) {
 }
 
 // Create a new http engine (for now, gin is the only supported engine)
-func NewEchoHttpEngine(options ...HttpEngineOption) IHttpEngine {
+func NewEchoHttpEngine(options ...HttpEngineOption) *EchoHttpEngine {
 	// Get the options
 	var option HttpEngineOption
 	if len(options) > 0 {
