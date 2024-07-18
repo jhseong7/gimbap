@@ -2,9 +2,12 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	logger "github.com/jhseong7/ecl"
@@ -18,6 +21,8 @@ type (
 		// The underlying http engine
 		engine          *gin.Engine
 		globalApiPrefix string
+
+		server *http.Server
 
 		logger logger.Logger
 	}
@@ -89,7 +94,29 @@ func (e *GinHttpEngine) Run(port int) {
 	}
 
 	e.logger.Logf("Starting the http engine on port %d\n", port)
-	e.engine.Run(fmt.Sprintf(":%d", port))
+
+	// Create an http server
+	e.server = &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: e.engine,
+	}
+
+	// Start the server
+	e.server.ListenAndServe()
+}
+
+func (e *GinHttpEngine) Stop() {
+	e.logger.Log("Stopping the http engine")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := e.server.Shutdown(ctx); err != nil {
+		e.logger.Fatalf("Failed to shutdown the http engine: %s", err)
+	}
+
+	select {
+	case <-ctx.Done():
+		e.logger.Warn("Server failed to shutdown gracefully with in 5 seconds")
+	}
 }
 
 func CreateGinHttpEngine(logger logger.Logger) (e *gin.Engine) {
