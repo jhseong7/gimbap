@@ -20,7 +20,7 @@ For example, if the app is given a module with a provider with a struct of `Serv
 
 This does not only apply to Service level providers. Any Go struct that is unique can be used as a provider where all components that require that as a parameter of the constructor will be automatically injected by the app.
 
-please check the Modules and Providers section for more information. [Link](/doc/modules-providers.md)
+please check the Modules and Providers section for more information. [Link](./modules-providers.md)
 
 ### Limitations
 
