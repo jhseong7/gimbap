@@ -110,7 +110,7 @@ func (e *FiberHttpEngine) Run(port int) {
 		port = 8080
 	}
 
-	e.logger.Logf("Starting the http engine on port %d\n", port)
+	e.logger.Logf("Starting the http engine on port %d", port)
 
 	// TODO: add a way to set cert and key for https
 	e.engine.Listen(fmt.Sprintf(":%d", port))

@@ -94,7 +94,7 @@ func (e *EchoHttpEngine) Run(port int) {
 		port = 8080
 	}
 
-	e.logger.Logf("Starting the http engine on port %d\n", port)
+	e.logger.Logf("Starting the http engine on port %d", port)
 	e.engine.Start(fmt.Sprintf(":%d", port))
 }
 

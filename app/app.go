@@ -41,13 +41,14 @@ type (
 		// pipes  []interface{}
 
 		// Function to run with the injection support
-		functionsWithInjection []interface{}
+		functionsWithInjection []*provider.Provider
 
 		// microservice list
 		microservices []microservice.MicroServiceProvider
 
 		// flag to hold the shutdown signal until all the components stop
 		shutdownFlag chan string
+		stopFlag     chan bool // Signal to trigger the stop of the app
 	}
 
 	AppOption struct {
@@ -129,6 +130,7 @@ func CreateApp(option AppOption) *GimbapApp {
 		onStopListeners:  []func(){},
 
 		shutdownFlag: make(chan string),
+		stopFlag:     make(chan bool),
 	}
 
 	return a
@@ -207,8 +209,12 @@ func (app *GimbapApp) run() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		sig := <-sigs
-		app.logger.Logf("Received signal: %s", sig)
+		select {
+		case sig := <-sigs:
+			app.logger.Logf("Received signal: %s", sig)
+		case <-app.stopFlag:
+			app.logger.Log("Received graceful stop request")
+		}
 
 		// Stop the main engine to break the loop
 		app.httpEngine.Stop()
@@ -223,9 +229,10 @@ func (app *GimbapApp) run() {
 	app.onStart()
 
 	// Start the engine
-	app.logger.Logf("App started on port: %d", runtimeOpts.Port)
+	app.logger.Log("App started")
 	app.httpEngine.Run(runtimeOpts.Port) // Blocking from here
 
+	// Defer function that blocks until the stop signal is received.
 	defer func() {
 		// Wait for the stop signal (blocking)
 		<-app.shutdownFlag
@@ -243,13 +250,35 @@ func (app *GimbapApp) SetCustomLogger(logger logger.Logger) {
 // UseInjection is a function to add functions that will be called with the injection support.
 //
 // This is useful for initializing functions that need to use providers.
-func (app *GimbapApp) UseInjection(functions ...interface{}) {
+// A function that provides the value can be given, or the value itself can be given.
+// If a function is given, that function can also benefit from the injection support.
+func (app *GimbapApp) UseInjection(injectionValue interface{}) {
 	// Initialize the functions list if it is nil.
 	if app.functionsWithInjection == nil {
-		app.functionsWithInjection = []interface{}{}
+		app.functionsWithInjection = []*provider.Provider{}
 	}
 
-	app.functionsWithInjection = append(app.functionsWithInjection, functions...)
+	var instantiator interface{}
+
+	// Check if the function is a function type
+	funcType := reflect.TypeOf(injectionValue)
+	if funcType.Kind() == reflect.Func {
+		instantiator = injectionValue
+	} else {
+		// Create a function that returns the function
+		funcType := reflect.FuncOf([]reflect.Type{}, []reflect.Type{funcType}, false)
+		instantiator = reflect.MakeFunc(funcType, func(args []reflect.Value) []reflect.Value {
+			return []reflect.Value{reflect.ValueOf(injectionValue)}
+		}).Interface()
+	}
+
+	app.functionsWithInjection = append(
+		app.functionsWithInjection,
+		provider.DefineProvider(provider.ProviderOption{
+			Name:         "InjectionFunction",
+			Instantiator: instantiator,
+		}),
+	)
 }
 
 // Add middleware to the engine.
@@ -348,6 +377,8 @@ func (app *GimbapApp) stopMicroServices() {
 
 // Start routine other than the engine
 func (app *GimbapApp) onStart() {
+	app.logger.Log("Running on start routine")
+
 	// NOTE: change this to go routine if there is a risk for deadlock.
 	for _, listener := range app.onStartListeners {
 		listener()
@@ -361,6 +392,8 @@ func (app *GimbapApp) onStart() {
 
 // Stop routine other than the engine
 func (app *GimbapApp) onStop() {
+	app.logger.Log("Running on stop routine")
+
 	// Call the onStopListeners
 	for _, listener := range app.onStopListeners {
 		listener()
@@ -374,7 +407,8 @@ func (app *GimbapApp) onStop() {
 
 // Stop the app
 func (app *GimbapApp) Stop() {
-
+	// Send the stop signal
+	app.stopFlag <- true
 }
 
 func (app *GimbapApp) Run(options ...RuntimeOptions) {
@@ -427,6 +461,11 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 
 	// Add the runtime options provider
 	providers = append(providers, &optionProvider)
+
+	// Add the functions with injection support
+	if app.functionsWithInjection != nil {
+		providers = append(providers, app.functionsWithInjection...)
+	}
 
 	// Inject the providers
 	app.depManager.Inject(app.instanceMap, providers)
