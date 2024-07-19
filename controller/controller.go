@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/gimbap/provider"
 )
 
 type (
@@ -16,9 +17,8 @@ type (
 
 	// RESTful controller.
 	Controller struct {
-		Name         string
-		RootPath     string
-		Instantiator interface{}
+		provider.Provider
+		RootPath string
 	}
 
 	RouteSpec struct {
@@ -62,8 +62,10 @@ func DefineController(option ControllerOption) *Controller {
 	}
 
 	return &Controller{
-		Name:         option.Name,
-		RootPath:     option.RootPath,
-		Instantiator: option.Instantiator,
+		Provider: provider.Provider{
+			Name:         option.Name,
+			Instantiator: option.Instantiator,
+		},
+		RootPath: option.RootPath,
 	}
 }

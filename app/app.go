@@ -1,8 +1,6 @@
 package app
 
 import (
-	"context"
-	"log"
 	"os"
 	"os/signal"
 	"reflect"
@@ -10,11 +8,12 @@ import (
 
 	logger "github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
+	"github.com/jhseong7/gimbap/dependency"
 	"github.com/jhseong7/gimbap/engine"
 	"github.com/jhseong7/gimbap/microservice"
 	"github.com/jhseong7/gimbap/module"
+	"github.com/jhseong7/gimbap/provider"
 	"go.uber.org/fx"
-	"go.uber.org/fx/fxevent"
 )
 
 const (
@@ -23,9 +22,10 @@ const (
 
 type (
 	GimbapApp struct {
-		appModule module.Module      // Root module for the app.
-		appOption AppOption          // Options for the app.
-		engine    engine.IHttpEngine // The http engine that will handle RESTful requests.
+		appModule  module.Module                 // Root module for the app.
+		appOption  AppOption                     // Options for the app.
+		httpEngine engine.IHttpEngine            // The http engine that will handle RESTful requests.
+		depManager dependency.IDependencyManager // Engine that handles dependency injection.
 
 		fxApp       *fx.App                        // fx.App instance for DI
 		instanceMap map[reflect.Type]reflect.Value // Map to save instances of providers.
@@ -41,16 +41,21 @@ type (
 		// pipes  []interface{}
 
 		// Function to run with the injection support
-		functionsWithInjection []interface{}
+		functionsWithInjection []*provider.Provider
 
 		// microservice list
 		microservices []microservice.MicroServiceProvider
+
+		// flag to hold the shutdown signal until all the components stop
+		shutdownFlag chan string
+		stopFlag     chan bool // Signal to trigger the stop of the app
 	}
 
 	AppOption struct {
 		AppName    string
 		AppModule  *module.Module
 		HttpEngine engine.IHttpEngine
+		DepManager dependency.IDependencyManager
 	}
 
 	RuntimeOptions struct {
@@ -77,77 +82,6 @@ func GetProvider[T interface{}](app GimbapApp, prov T) (ret T) {
 	return
 }
 
-// Prepares the provider and injection functions for the app.
-// Fx. does not initialize any providers unless they are explicitly called through fx.Invoke
-// This method creates a list of providers to use in the fx.Invoke function from the given root Module
-func (app *GimbapApp) createInjectionInits() (provider, initInvoker fx.Option) {
-	// List to save all providers.
-	var opList []fx.Option = []fx.Option{}
-
-	// List to save return types of all providers.
-	returnTypeList := []reflect.Type{}
-
-	for _, p := range app.appModule.GetProviderMap() {
-		// Add the instantiator to the optionList
-		opList = append(opList, fx.Provide(p.Instantiator))
-
-		funcType := reflect.TypeOf(p.Instantiator)
-
-		// Get the output types and save them to returnTypeList
-		for i := 0; i < funcType.NumOut(); i++ {
-			returnTypeList = append(returnTypeList, funcType.Out(i))
-		}
-	}
-
-	// Process controller maps
-	for _, c := range app.appModule.GetControllerMap() {
-		// Add the instantiator to the optionList
-		opList = append(opList, fx.Provide(c.Instantiator))
-
-		funcType := reflect.TypeOf(c.Instantiator)
-
-		// Get the output types and save them to returnTypeList
-		for i := 0; i < funcType.NumOut(); i++ {
-			returnTypeList = append(returnTypeList, funcType.Out(i))
-		}
-	}
-
-	// Process Microservices
-	for _, m := range app.microservices {
-		// Add the instantiator to the optionList
-		opList = append(opList, fx.Provide(m.Instantiator))
-
-		funcType := reflect.TypeOf(m.Instantiator)
-
-		// Get the output types and save them to returnTypeList
-		for i := 0; i < funcType.NumOut(); i++ {
-			returnTypeList = append(returnTypeList, funcType.Out(i))
-		}
-	}
-
-	// Create function type. Inputs --> all provider outputs (instantiators), returns --> nothing.
-	functionType := reflect.FuncOf(returnTypeList, nil, false)
-
-	// Create function to initialize all providers. at runtime
-	function := reflect.MakeFunc(functionType, func(args []reflect.Value) []reflect.Value {
-		for _, a := range args {
-			// Save the instance to instanceMap
-			app.instanceMap[reflect.TypeOf(a.Interface())] = a
-			app.logger.Debugf("Provider instance created: %s", reflect.TypeOf(a.Interface()).String())
-		}
-
-		return nil
-	})
-
-	// Create a fx.Module as a provider for the instantiators
-	provider = fx.Module("AppModule", opList...)
-
-	// Return the function and the fx.Option
-	initInvoker = fx.Invoke(function.Interface())
-
-	return
-}
-
 // Create a Gimbap instance.
 //
 // This is the entry point to create a Gimbap application.
@@ -160,9 +94,10 @@ func CreateApp(option AppOption) *GimbapApp {
 	})
 
 	if option.AppModule == nil {
-		l.Panic("AppModule is not set")
+		l.Panic("AppModule is not set. Cannot create app.")
 	}
 
+	// Http engine
 	var e engine.IHttpEngine
 	if option.HttpEngine == nil {
 		l.Warn("HttpEngine is not set. Using default engine: GinHttpEngine")
@@ -171,11 +106,21 @@ func CreateApp(option AppOption) *GimbapApp {
 		e = option.HttpEngine
 	}
 
+	// Dependency manager
+	var d dependency.IDependencyManager
+	if option.DepManager == nil {
+		l.Warn("DependencyManager is not set. Using default manager: FxManager")
+		d = dependency.NewFxManager()
+	} else {
+		d = option.DepManager
+	}
+
 	a := &GimbapApp{
 		appModule: *option.AppModule,
 		appOption: option,
 
-		engine: e,
+		httpEngine: e,
+		depManager: d,
 
 		instanceMap: make(map[reflect.Type]reflect.Value),
 
@@ -183,6 +128,9 @@ func CreateApp(option AppOption) *GimbapApp {
 
 		onStartListeners: []func(){},
 		onStopListeners:  []func(){},
+
+		shutdownFlag: make(chan string),
+		stopFlag:     make(chan bool),
 	}
 
 	return a
@@ -238,14 +186,17 @@ func (app *GimbapApp) registerControllerInstances() {
 		}
 
 		// Register the controller
-		app.engine.RegisterController(c.RootPath, inst)
+		app.httpEngine.RegisterController(c.RootPath, inst)
 	}
 }
 
 // The internal run function that will be called by fx.Invoke.
 //
 // This function will start the engine and call all the onStartListeners.
-func (app *GimbapApp) run(lc fx.Lifecycle, runtimeOpts RuntimeOptions) {
+func (app *GimbapApp) run() {
+	// Get the runtime options from the instance map
+	runtimeOpts := GetProvider(*app, RuntimeOptions{})
+
 	// Initialize the engine
 	// Bind the controller instances to the engine and register the routes.
 	// This will automatically call the GetRouteSpecs function of each controller. (if it is implemented)
@@ -258,47 +209,35 @@ func (app *GimbapApp) run(lc fx.Lifecycle, runtimeOpts RuntimeOptions) {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		sig := <-sigs
-		app.logger.Logf("Received signal: %s", sig)
+		select {
+		case sig := <-sigs:
+			app.logger.Logf("Received signal: %s", sig)
+		case <-app.stopFlag:
+			app.logger.Log("Received graceful stop request")
+		}
 
 		// Stop the main engine to break the loop
-		app.engine.Stop()
+		app.httpEngine.Stop()
+
+		app.onStop()
+
+		// Send the shutdown signal
+		app.shutdownFlag <- "shutdown"
 	}()
 
-	lc.Append(fx.Hook{
-		OnStart: func(context.Context) error {
-			// NOTE: change this to go routine if there is a risk for deadlock.
-			for _, listener := range app.onStartListeners {
-				listener()
-			}
+	// Run the onStart lifecycle
+	app.onStart()
 
-			// Start the microservices if exists
-			if len(app.microservices) > 0 {
-				app.startMicroServices()
-			}
+	// Start the engine
+	app.logger.Log("App started")
+	app.httpEngine.Run(runtimeOpts.Port) // Blocking from here
 
-			// Start the engine
-			app.logger.Logf("App started on port: %d", runtimeOpts.Port)
-			app.engine.Run(runtimeOpts.Port)
-
-			return nil
-		},
-		OnStop: func(context.Context) error {
-			// NOTE: change this to go routine if there is a risk for deadlock.
-			for _, listener := range app.onStopListeners {
-				listener()
-			}
-
-			// Stop the microservices if exists
-			if len(app.microservices) > 0 {
-				app.stopMicroServices()
-			}
-
-			app.logger.Log("App stopped")
-
-			return nil
-		},
-	})
+	// Defer function that blocks until the stop signal is received.
+	defer func() {
+		// Wait for the stop signal (blocking)
+		<-app.shutdownFlag
+		app.logger.Log("App has gracefully stopped")
+	}()
 }
 
 // Set a custom logger for the app.
@@ -311,13 +250,35 @@ func (app *GimbapApp) SetCustomLogger(logger logger.Logger) {
 // UseInjection is a function to add functions that will be called with the injection support.
 //
 // This is useful for initializing functions that need to use providers.
-func (app *GimbapApp) UseInjection(functions ...interface{}) {
+// A function that provides the value can be given, or the value itself can be given.
+// If a function is given, that function can also benefit from the injection support.
+func (app *GimbapApp) UseInjection(injectionValue interface{}) {
 	// Initialize the functions list if it is nil.
 	if app.functionsWithInjection == nil {
-		app.functionsWithInjection = []interface{}{}
+		app.functionsWithInjection = []*provider.Provider{}
 	}
 
-	app.functionsWithInjection = append(app.functionsWithInjection, functions...)
+	var instantiator interface{}
+
+	// Check if the function is a function type
+	funcType := reflect.TypeOf(injectionValue)
+	if funcType.Kind() == reflect.Func {
+		instantiator = injectionValue
+	} else {
+		// Create a function that returns the function
+		funcType := reflect.FuncOf([]reflect.Type{}, []reflect.Type{funcType}, false)
+		instantiator = reflect.MakeFunc(funcType, func(args []reflect.Value) []reflect.Value {
+			return []reflect.Value{reflect.ValueOf(injectionValue)}
+		}).Interface()
+	}
+
+	app.functionsWithInjection = append(
+		app.functionsWithInjection,
+		provider.DefineProvider(provider.ProviderOption{
+			Name:         "InjectionFunction",
+			Instantiator: instantiator,
+		}),
+	)
 }
 
 // Add middleware to the engine.
@@ -330,11 +291,11 @@ func (app *GimbapApp) AddMiddleware(middleware ...interface{}) {
 		return
 	}
 
-	if app.engine == nil {
+	if app.httpEngine == nil {
 		app.logger.Panic("HttpEngine is not set. Cannot add middleware")
 	}
 
-	app.engine.AddMiddleware(middleware...)
+	app.httpEngine.AddMiddleware(middleware...)
 }
 
 // Add a microservice to the app.
@@ -414,16 +375,42 @@ func (app *GimbapApp) stopMicroServices() {
 	}
 }
 
-// Stop the app
-func (app *GimbapApp) Stop() {
-	stopCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := app.fxApp.Stop(stopCtx); err != nil {
-		log.Fatal(err)
+// Start routine other than the engine
+func (app *GimbapApp) onStart() {
+	app.logger.Log("Running on start routine")
+
+	// NOTE: change this to go routine if there is a risk for deadlock.
+	for _, listener := range app.onStartListeners {
+		listener()
+	}
+
+	// Start the microservices if exists
+	if len(app.microservices) > 0 {
+		app.startMicroServices()
 	}
 }
 
-// The public start function that will start the app.
+// Stop routine other than the engine
+func (app *GimbapApp) onStop() {
+	app.logger.Log("Running on stop routine")
+
+	// Call the onStopListeners
+	for _, listener := range app.onStopListeners {
+		listener()
+	}
+
+	// Stop the microservices if exists
+	if len(app.microservices) > 0 {
+		app.stopMicroServices()
+	}
+}
+
+// Stop the app
+func (app *GimbapApp) Stop() {
+	// Send the stop signal
+	app.stopFlag <- true
+}
+
 func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	// Catch any panic and log it.
 	defer func() {
@@ -440,42 +427,49 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	}
 
 	// Runtime option provider function
-	var optionProvider fx.Option
+	var optionProvider provider.Provider
 	if option.WithProvided != nil {
 		// TODO: Add a check for the input types of provided and see if it is in our provider map.
-		optionProvider = fx.Provide(option.WithProvided)
+		optionProvider = *provider.DefineProvider(provider.ProviderOption{
+			Name:         "RuntimeOptions",
+			Instantiator: option.WithProvided,
+		})
 	} else {
-		optionProvider = fx.Provide(func() RuntimeOptions { return option })
+		optionProvider = *provider.DefineProvider(provider.ProviderOption{
+			Name:         "RuntimeOptions",
+			Instantiator: func() RuntimeOptions { return option },
+		})
 	}
 
-	// Create the injection function and the fx.Option
-	providers, initInvoker := app.createInjectionInits()
+	// Call the dependency manager to inject the providers
+	providers := []*provider.Provider{}
 
-	app.fxApp = fx.New(
-		// Logger settings (TODO: make this configurable)
-		fx.WithLogger(func() fxevent.Logger { return fxevent.NopLogger }),
-
-		// PROVIDERS
-		providers,      // Get auto generated fx.Option from the module
-		optionProvider, // Inject the runtime options
-
-		// INVOKEs
-		initInvoker,
-
-		// Run any custom run function for injections
-		fx.Invoke(app.functionsWithInjection...),
-		fx.Invoke(app.run),
-	)
-
-	startCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := app.fxApp.Start(startCtx); err != nil {
-		log.Fatal(err)
+	// Collect all providers from the module
+	for _, p := range app.appModule.GetProviderMap() {
+		providers = append(providers, p)
 	}
 
-	stopCtx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := app.fxApp.Stop(stopCtx); err != nil {
-		log.Fatal(err)
+	// Collect all controllers from the module
+	for _, c := range app.appModule.GetControllerMap() {
+		providers = append(providers, &c.Provider)
 	}
+
+	// Collect all microservices
+	for _, m := range app.microservices {
+		providers = append(providers, &m.Provider)
+	}
+
+	// Add the runtime options provider
+	providers = append(providers, &optionProvider)
+
+	// Add the functions with injection support
+	if app.functionsWithInjection != nil {
+		providers = append(providers, app.functionsWithInjection...)
+	}
+
+	// Inject the providers
+	app.depManager.Inject(app.instanceMap, providers)
+
+	// Run the app
+	app.run()
 }

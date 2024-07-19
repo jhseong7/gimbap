@@ -93,7 +93,7 @@ func (e *GinHttpEngine) Run(port int) {
 		port = 8080
 	}
 
-	e.logger.Logf("Starting the http engine on port %d\n", port)
+	e.logger.Logf("Starting the http engine on port %d", port)
 
 	// Create an http server
 	e.server = &http.Server{

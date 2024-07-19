@@ -1,5 +1,7 @@
 package microservice
 
+import "github.com/jhseong7/gimbap/provider"
+
 type (
 	// Interface to define a microservice
 	//
@@ -14,9 +16,10 @@ type (
 	}
 
 	// Structure to define a microservice. This is used to define a microservice in the app.
+	// NOTE: since Microservice provider does not have any extra fields for now, just alias provider
+	// however for future extensibility, it is better to keep it separate.
 	MicroServiceProvider struct {
-		Name         string
-		Instantiator interface{}
+		provider.Provider
 	}
 )
 
