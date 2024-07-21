@@ -4,6 +4,9 @@
 package module
 
 import (
+	"fmt"
+	"reflect"
+
 	logger "github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/provider"
@@ -14,11 +17,9 @@ type (
 		// Name of module
 		Name string
 
-		// Provider map of all providers in this module (that is exported)
-		// key: provider name, value: provider.
-		providerMap map[string]*provider.Provider
+		providerList []*provider.Provider
 
-		controllerMap map[string]*controller.Controller
+		providerMapWithHandler map[string]map[string]interface{}
 	}
 
 	ModuleOption struct {
@@ -36,65 +37,127 @@ type (
 	}
 )
 
-func DefineModule(option ModuleOption) *Module {
-	if option.Name == "" {
-		logger.NewLogger(logger.LoggerOption{Name: "DefineModule"}).Panicf("Controller name cannot be empty")
+func extractEmbeddedProvider(p interface{}) (*provider.Provider, bool) {
+	// Return the provider if it is a provider
+	if p, ok := p.(*provider.Provider); ok {
+		return p, true
 	}
 
-	providerMap := map[string]*provider.Provider{}
-	controllerMap := map[string]*controller.Controller{}
+	v := reflect.ValueOf(p)
 
-	// For all given imports and providers, create fx.Option
-	for _, m := range option.SubModules {
-		// Merge provider map and controller map
-		for k, v := range m.providerMap {
-			if _, ok := providerMap[k]; ok {
-				panic("Provider name conflict: " + k + " is already defined.")
+	if v.Kind() != reflect.Ptr {
+		return nil, false
+	}
+
+	// Dereference the pointer
+	v = v.Elem()
+
+	// For the fields of the struct, check if it is a provider
+	for i := 0; i < v.NumField(); i++ {
+		field := v.Field(i)
+		fieldType := v.Type().Field(i)
+
+		fmt.Printf("Field: %s, Type: %s\n", fieldType.Name, field.Type().String())
+
+		// If the type is an embedded struct --> check if it is a provider
+		if fieldType.Anonymous {
+			if field.Type() == reflect.TypeOf(provider.Provider{}) {
+				prov := field.Interface().(provider.Provider)
+				return &prov, true
 			}
-
-			providerMap[k] = v
 		}
+	}
 
-		for k, v := range m.controllerMap {
-			if _, ok := controllerMap[k]; ok {
-				panic("Controller name conflict: " + k + " is already defined.")
+	return nil, false
+}
+
+func DefineModule(option ModuleOption) *Module {
+	log := logger.NewLogger(logger.LoggerOption{Name: "DefineModule"})
+
+	if option.Name == "" {
+		log.Panicf("Module name cannot be empty")
+	}
+
+	providerList := []*provider.Provider{}
+	providerMapWithHandler := map[string]map[string]interface{}{}
+
+	// For all the Submodules
+	for _, m := range option.SubModules {
+		// For all values of the provider with the handler
+		for handlerName, providerMap := range m.providerMapWithHandler {
+			if _, ok := providerMapWithHandler[handlerName]; !ok {
+				providerMapWithHandler[handlerName] = map[string]interface{}{}
 			}
 
-			controllerMap[k] = v
+			for name, p := range providerMap {
+				// If the name of the provider is already defined, panic.
+				if _, ok := providerMapWithHandler[handlerName][name]; ok {
+					log.Panicf("Provider name conflict: %s is already defined in handler %s", name, handlerName)
+				}
+
+				providerMapWithHandler[handlerName][name] = p
+
+				casted, ok := extractEmbeddedProvider(p)
+
+				if !ok {
+					log.Panicf("Provider %s is not a provider", name)
+				}
+
+				providerList = append(providerList, casted)
+			}
 		}
 	}
 
 	// Handle providers
 	for _, p := range option.Providers {
-		if _, ok := providerMap[p.Name]; ok {
-			panic("Provider name conflict: " + p.Name + " is already defined.")
+		// If the p.Handler is controller --> show warning
+		if p.Handler == "controller" {
+			log.Warnf("Provider %s is defined with handler 'controller'. Use 'Controller' options instead", p.Name)
 		}
 
-		providerMap[p.Name] = &p
+		if _, ok := providerMapWithHandler[p.Handler]; !ok {
+			providerMapWithHandler[p.Handler] = map[string]interface{}{}
+		}
+
+		if _, ok := providerMapWithHandler[p.Handler][p.Name]; ok {
+			log.Panicf("Provider name conflict: %s is already defined in handler %s", p.Name, "default")
+		}
+
+		providerMapWithHandler[p.Handler][p.Name] = &p
+		providerList = append(providerList, &p)
 	}
 
-	// Handle controllers
 	for _, c := range option.Controllers {
-		// Add to the controller map regardless of whether it is exported or not.
-		if _, ok := controllerMap[c.Name]; ok {
-			panic("Controller name conflict: " + c.Name + " is already defined.")
+		// If the p.Handler is controller --> show warning
+		if c.Handler != "controller" {
+			log.Warnf("Controller %s is not a controller. Please check the type", c.Name)
 		}
 
-		controllerMap[c.Name] = &c
+		// Add to the "default" handler
+		if _, ok := providerMapWithHandler[c.Handler]; !ok {
+			providerMapWithHandler[c.Handler] = map[string]interface{}{}
+		}
+
+		if _, ok := providerMapWithHandler[c.Handler][c.Name]; ok {
+			log.Panicf("Provider name conflict: %s is already defined in handler %s", c.Name, "default")
+		}
+
+		providerMapWithHandler[c.Handler][c.Name] = &c
+		providerList = append(providerList, &c.Provider)
 	}
 
 	// Return the module with fx.Option
 	return &Module{
-		Name:          option.Name,
-		providerMap:   providerMap,
-		controllerMap: controllerMap,
+		Name:                   option.Name,
+		providerMapWithHandler: providerMapWithHandler,
+		providerList:           providerList,
 	}
 }
 
-func (m *Module) GetProviderMap() map[string]*provider.Provider {
-	return m.providerMap
+func (m *Module) GetProviderList() []*provider.Provider {
+	return m.providerList
 }
 
-func (m *Module) GetControllerMap() map[string]*controller.Controller {
-	return m.controllerMap
+func (m *Module) GetProviderMapOfHandler(handler string) map[string]interface{} {
+	return m.providerMapWithHandler[handler]
 }

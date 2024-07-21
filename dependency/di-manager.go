@@ -8,8 +8,8 @@ import (
 
 type (
 	IDependencyManager interface {
-		// Inject the dependencies to the target
-		Inject(result map[reflect.Type]reflect.Value, providers []*provider.Provider)
+		// ResolveDependencies the dependencies to the target
+		ResolveDependencies(result map[reflect.Type]reflect.Value, providers []*provider.Provider)
 
 		// Lifecycle methods
 		OnStart()

@@ -9,6 +9,9 @@ type (
 	Provider struct {
 		Name         string
 		Instantiator interface{}
+
+		// The handler string is used to identify the handler in the provider. (e.g. Controller)
+		Handler string
 	}
 
 	ProviderOption struct {
@@ -26,5 +29,6 @@ func DefineProvider(option ProviderOption) *Provider {
 	return &Provider{
 		Name:         option.Name,
 		Instantiator: option.Instantiator,
+		Handler:      "default",
 	}
 }

@@ -13,7 +13,6 @@ import (
 	"github.com/jhseong7/gimbap/microservice"
 	"github.com/jhseong7/gimbap/module"
 	"github.com/jhseong7/gimbap/provider"
-	"go.uber.org/fx"
 )
 
 const (
@@ -27,7 +26,6 @@ type (
 		httpEngine engine.IHttpEngine            // The http engine that will handle RESTful requests.
 		depManager dependency.IDependencyManager // Engine that handles dependency injection.
 
-		fxApp       *fx.App                        // fx.App instance for DI
 		instanceMap map[reflect.Type]reflect.Value // Map to save instances of providers.
 
 		logger logger.Logger
@@ -166,7 +164,12 @@ func (app *GimbapApp) deriveTypeFromInstantiator(instantiator interface{}) (refl
 // Register the controller instances to the engine.
 func (app *GimbapApp) registerControllerInstances() {
 	// For all controllers
-	for _, c := range app.appModule.GetControllerMap() {
+	for _, rc := range app.appModule.GetProviderMapOfHandler("controller") {
+		c, ok := rc.(*controller.Controller)
+		if !ok {
+			app.logger.Panicf("Failed to cast controller: %s", reflect.TypeOf(rc).String())
+		}
+
 		// Get the return type of the instantiator (this will be the controller's type)
 		instanceType, ok := app.deriveTypeFromInstantiator(c.Instantiator)
 		if !ok {
@@ -445,13 +448,8 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	providers := []*provider.Provider{}
 
 	// Collect all providers from the module
-	for _, p := range app.appModule.GetProviderMap() {
+	for _, p := range app.appModule.GetProviderList() {
 		providers = append(providers, p)
-	}
-
-	// Collect all controllers from the module
-	for _, c := range app.appModule.GetControllerMap() {
-		providers = append(providers, &c.Provider)
 	}
 
 	// Collect all microservices
@@ -468,7 +466,7 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	}
 
 	// Inject the providers
-	app.depManager.Inject(app.instanceMap, providers)
+	app.depManager.ResolveDependencies(app.instanceMap, providers)
 
 	// Run the app
 	app.run()
