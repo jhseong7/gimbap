@@ -16,7 +16,7 @@ import (
 
 type (
 	EchoHttpEngine struct {
-		IHttpEngine
+		IServerEngine
 
 		// The underlying http engine
 		engine          *echo.Echo
@@ -99,7 +99,7 @@ func (e *EchoHttpEngine) Run(port int) {
 }
 
 func (e *EchoHttpEngine) Stop() {
-	e.logger.Log("Stopping the http engine")
+	e.logger.Log("Stopping the http engine (Max 5 seconds)")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := e.engine.Shutdown(ctx); err != nil {
@@ -138,9 +138,9 @@ func CreateEchoHttpEngine(logger logger.Logger) (e *echo.Echo) {
 }
 
 // Create a new http engine (for now, gin is the only supported engine)
-func NewEchoHttpEngine(options ...HttpEngineOption) *EchoHttpEngine {
+func NewEchoHttpEngine(options ...ServerEngineOption) *EchoHttpEngine {
 	// Get the options
-	var option HttpEngineOption
+	var option ServerEngineOption
 	if len(options) > 0 {
 		option = options[0]
 	}

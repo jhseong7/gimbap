@@ -14,7 +14,7 @@ import (
 
 type (
 	FiberHttpEngine struct {
-		IHttpEngine
+		IServerEngine
 
 		// The underlying http engine
 		engine          *fiber.App
@@ -23,8 +23,8 @@ type (
 		logger logger.Logger
 	}
 
-	FiberHttpEngineOption struct {
-		HttpEngineOption
+	FiberEngineOption struct {
+		ServerEngineOption
 		FiberConfig fiber.Config
 	}
 
@@ -137,9 +137,9 @@ func CreateFiberHttpEngine(logger logger.Logger, fiberConfig fiber.Config) (e *f
 }
 
 // Create a new http engine (for now, gin is the only supported engine)
-func NewFiberHttpEngine(options ...FiberHttpEngineOption) *FiberHttpEngine {
+func NewFiberHttpEngine(options ...FiberEngineOption) *FiberHttpEngine {
 	// Get the options
-	var option FiberHttpEngineOption
+	var option FiberEngineOption
 	if len(options) > 0 {
 		option = options[0]
 	}
