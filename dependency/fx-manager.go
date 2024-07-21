@@ -19,12 +19,6 @@ type (
 )
 
 func (f *FxDependencyManager) ResolveDependencies(instanceMap map[reflect.Type]reflect.Value, providerList []*provider.Provider) {
-	f.logger.Logf("Injecting Dependencies for %d providers", len(providerList))
-
-	for _, p := range providerList {
-		f.logger.Logf("Injecting Dependencies for %s", p.Name)
-	}
-
 	// List to save all providers.
 	opList := []fx.Option{}
 

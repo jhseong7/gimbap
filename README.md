@@ -11,7 +11,11 @@
 
 ## Why GIMBAP?
 
-Gimbap is a Korean-style see-weed roll that is similar to sushi. It is a simple and easy to make dish that is popular in Korea. The name GIMBAP is chosen as the accronym because it's one of my favourite dishes!.
+Gimbap is a Korean-style see-weed roll that is similar to sushi. It is a simple and easy to make dish that is popular in Korea. The name GIMBAP is chosen as the acronym because it's one of my favourite dishes!.
+
+Gimbap is a food where vegetables, fish and meat are rolled in a seaweed sheet with cooked rice. The seaweed sheet connects all the ingredients together and makes it easy to eat.
+
+Like this GIMBAP aims to provide a simple solution to build web application in Go, connecting all components together in a simple and easy way.
 
 ## Introduction
 
