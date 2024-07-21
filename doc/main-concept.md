@@ -7,7 +7,7 @@ The main component of GIMBAP is called an "App".
 And each app has some core features like below:
 
 - Dependency Management
-- Http Engine
+- Server Engine
 - Microservices
 
 ## Dependency Management
@@ -33,14 +33,14 @@ Since DI works by identifying the given struct's type and building the dependenc
    - Circular dependencies will cause a panic in the DI system
    - e.g. `A -> B -> C -> A` is not allowed
 
-## Http Engine
+## Server Engine
 
-GIMBAP always requires a single http server to run the application. This http server is build in a modular form called the `Http Engine`
+GIMBAP always requires a single server to run the application. This server is build in a modular form called the `Server Engine`
 
-A HTTP Engine must implement the interface `engine.IHttpEngine` where the specs are as follows
+A HTServerTP Engine must implement the interface `engine.IServerEngine` where the specs are as follows
 
 ```golang
-type IHttpEngine interface {
+type IServerEngine interface {
   RegisterController(rootPath string, controller controller.IController)
   Run(port int)
   Stop()
@@ -89,7 +89,7 @@ Null Engines are provided just in case if you are to use GIMBAP as somewhat othe
 
 If you are up to developing a new engine yourself, feel free to reference the `/engine` directory for the existing engines
 
-## Microservices (WIP)
+## Microservices
 
 Microservices are special logics that are automatically started and stopped by the app's lifecycle. These are designed to be used for other types of servers other than the http server.
 

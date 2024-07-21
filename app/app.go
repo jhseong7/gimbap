@@ -98,7 +98,7 @@ func CreateApp(option AppOption) *GimbapApp {
 	// Http engine
 	var e engine.IServerEngine
 	if option.ServerEngine == nil {
-		l.Warn("HttpEngine is not set. Using default engine: GinHttpEngine")
+		l.Log("HttpEngine is not set. Using default engine: GinHttpEngine")
 		e = engine.NewGinHttpEngine()
 	} else {
 		e = option.ServerEngine
@@ -107,7 +107,7 @@ func CreateApp(option AppOption) *GimbapApp {
 	// Dependency manager
 	var d dependency.IDependencyManager
 	if option.DepManager == nil {
-		l.Warn("DependencyManager is not set. Using default manager: FxManager")
+		l.Log("DependencyManager is not set. Using default manager: FxManager")
 		d = dependency.NewFxManager()
 	} else {
 		d = option.DepManager
