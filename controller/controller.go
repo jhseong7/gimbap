@@ -65,6 +65,7 @@ func DefineController(option ControllerOption) *Controller {
 		Provider: provider.Provider{
 			Name:         option.Name,
 			Instantiator: option.Instantiator,
+			Handler:      "controller",
 		},
 		RootPath: option.RootPath,
 	}
