@@ -7,7 +7,7 @@ import (
 
 type (
 	NullEngine struct {
-		IHttpEngine
+		IServerEngine
 
 		logger logger.Logger
 

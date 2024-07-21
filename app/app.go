@@ -21,10 +21,10 @@ const (
 
 type (
 	GimbapApp struct {
-		appModule  module.Module                 // Root module for the app.
-		appOption  AppOption                     // Options for the app.
-		httpEngine engine.IHttpEngine            // The http engine that will handle RESTful requests.
-		depManager dependency.IDependencyManager // Engine that handles dependency injection.
+		appModule    module.Module                 // Root module for the app.
+		appOption    AppOption                     // Options for the app.
+		serverEngine engine.IServerEngine          // The http engine that will handle RESTful requests.
+		depManager   dependency.IDependencyManager // Engine that handles dependency injection.
 
 		instanceMap map[reflect.Type]reflect.Value // Map to save instances of providers.
 
@@ -52,7 +52,7 @@ type (
 	AppOption struct {
 		AppName    string
 		AppModule  *module.Module
-		HttpEngine engine.IHttpEngine
+		HttpEngine engine.IServerEngine
 		DepManager dependency.IDependencyManager
 	}
 
@@ -96,7 +96,7 @@ func CreateApp(option AppOption) *GimbapApp {
 	}
 
 	// Http engine
-	var e engine.IHttpEngine
+	var e engine.IServerEngine
 	if option.HttpEngine == nil {
 		l.Warn("HttpEngine is not set. Using default engine: GinHttpEngine")
 		e = engine.NewGinHttpEngine()
@@ -117,8 +117,8 @@ func CreateApp(option AppOption) *GimbapApp {
 		appModule: *option.AppModule,
 		appOption: option,
 
-		httpEngine: e,
-		depManager: d,
+		serverEngine: e,
+		depManager:   d,
 
 		instanceMap: make(map[reflect.Type]reflect.Value),
 
@@ -189,7 +189,7 @@ func (app *GimbapApp) registerControllerInstances() {
 		}
 
 		// Register the controller
-		app.httpEngine.RegisterController(c.RootPath, inst)
+		app.serverEngine.RegisterController(c.RootPath, inst)
 	}
 }
 
@@ -220,7 +220,7 @@ func (app *GimbapApp) run() {
 		}
 
 		// Stop the main engine to break the loop
-		app.httpEngine.Stop()
+		app.serverEngine.Stop()
 
 		app.onStop()
 
@@ -233,7 +233,7 @@ func (app *GimbapApp) run() {
 
 	// Start the engine
 	app.logger.Log("App started")
-	app.httpEngine.Run(runtimeOpts.Port) // Blocking from here
+	app.serverEngine.Run(runtimeOpts.Port) // Blocking from here
 
 	// Defer function that blocks until the stop signal is received.
 	defer func() {
@@ -294,11 +294,11 @@ func (app *GimbapApp) AddMiddleware(middleware ...interface{}) {
 		return
 	}
 
-	if app.httpEngine == nil {
+	if app.serverEngine == nil {
 		app.logger.Panic("HttpEngine is not set. Cannot add middleware")
 	}
 
-	app.httpEngine.AddMiddleware(middleware...)
+	app.serverEngine.AddMiddleware(middleware...)
 }
 
 // Add a microservice to the app.
@@ -468,6 +468,6 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	// Inject the providers
 	app.depManager.ResolveDependencies(app.instanceMap, providers)
 
-	// Run the app
+	// Run the app (blocking from here)
 	app.run()
 }

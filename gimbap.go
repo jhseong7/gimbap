@@ -32,8 +32,8 @@ type (
 	RouteSpec            = controller.RouteSpec
 
 	// Engine related
-	IHttpEngine      = engine.IHttpEngine
-	HttpEngineOption = engine.HttpEngineOption
+	IServerEngine      = engine.IServerEngine
+	ServerEngineOption = engine.ServerEngineOption
 
 	// Microservice related
 	IMicroService = microservice.IMicroService

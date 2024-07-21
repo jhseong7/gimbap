@@ -15,14 +15,23 @@ import (
 
 type (
 	// The engine must implement this interface to be used in the app.
-	IHttpEngine interface {
+	IServerEngine interface {
+		// Registers a controller to the engine
 		RegisterController(rootPath string, controller controller.IController)
+
+		// Run the server on the specified port
 		Run(port int)
+
+		// Stop the server gracefully
+		// Must implement a timeout if there is a possibility of a hanging.
 		Stop()
+
+		// Add middleware to the engine.
+		// This will be native to the engine's core
 		AddMiddleware(middleware ...interface{})
 	}
 
-	HttpEngineOption struct {
+	ServerEngineOption struct {
 		GlobalApiPrefix string
 	}
 )
