@@ -50,10 +50,10 @@ type (
 	}
 
 	AppOption struct {
-		AppName    string
-		AppModule  *module.Module
-		HttpEngine engine.IServerEngine
-		DepManager dependency.IDependencyManager
+		AppName      string
+		AppModule    *module.Module
+		ServerEngine engine.IServerEngine
+		DepManager   dependency.IDependencyManager
 	}
 
 	RuntimeOptions struct {
@@ -97,11 +97,11 @@ func CreateApp(option AppOption) *GimbapApp {
 
 	// Http engine
 	var e engine.IServerEngine
-	if option.HttpEngine == nil {
+	if option.ServerEngine == nil {
 		l.Warn("HttpEngine is not set. Using default engine: GinHttpEngine")
 		e = engine.NewGinHttpEngine()
 	} else {
-		e = option.HttpEngine
+		e = option.ServerEngine
 	}
 
 	// Dependency manager
