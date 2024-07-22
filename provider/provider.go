@@ -3,7 +3,9 @@
 // This file defines the provider interface and its implementation.
 package provider
 
-import logger "github.com/jhseong7/ecl"
+import (
+	logger "github.com/jhseong7/ecl"
+)
 
 type (
 	Provider struct {
@@ -20,6 +22,10 @@ type (
 	}
 )
 
+const (
+	HandlerName string = "default"
+)
+
 // Define a provider
 func DefineProvider(option ProviderOption) *Provider {
 	if option.Name == "" {
@@ -29,6 +35,6 @@ func DefineProvider(option ProviderOption) *Provider {
 	return &Provider{
 		Name:         option.Name,
 		Instantiator: option.Instantiator,
-		Handler:      "default",
+		Handler:      HandlerName,
 	}
 }

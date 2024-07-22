@@ -18,7 +18,7 @@ type (
 
 		providerList []*provider.Provider
 
-		providerMapWithHandler map[string]map[string]interface{}
+		providerMapWithHandler map[string]map[ProviderKey]interface{}
 	}
 
 	ModuleOption struct {
@@ -26,13 +26,19 @@ type (
 		Name string
 
 		// List of modules that this module depends on.
-		SubModules []Module
+		SubModules []*Module
 
 		// List of providers that this module provides.
-		Providers []provider.Provider
+		Providers []*provider.Provider
 
 		// Rest controllers
-		Controllers []controller.Controller
+		Controllers []*controller.Controller
+	}
+
+	// Key to uniquely identify a provider in a module
+	ProviderKey struct {
+		Type reflect.Type
+		Name string
 	}
 )
 
@@ -68,6 +74,16 @@ func extractEmbeddedProvider(p interface{}) (*provider.Provider, bool) {
 	return nil, false
 }
 
+// Get the key of the provider.
+func getKeyFromProvider(p provider.Provider) ProviderKey {
+	pType := reflect.TypeOf(p)
+
+	return ProviderKey{
+		Type: pType,
+		Name: pType.Name() + "." + p.Name,
+	}
+}
+
 func DefineModule(option ModuleOption) *Module {
 	log := logger.NewLogger(logger.LoggerOption{Name: "DefineModule"})
 
@@ -76,30 +92,33 @@ func DefineModule(option ModuleOption) *Module {
 	}
 
 	providerList := []*provider.Provider{}
-	providerMapWithHandler := map[string]map[string]interface{}{}
+	providerMapWithHandler := map[string]map[ProviderKey]interface{}{}
 
 	// For all the Submodules
 	for _, m := range option.SubModules {
 		// For all values of the provider with the handler
 		for handlerName, providerMap := range m.providerMapWithHandler {
 			if _, ok := providerMapWithHandler[handlerName]; !ok {
-				providerMapWithHandler[handlerName] = map[string]interface{}{}
+				providerMapWithHandler[handlerName] = map[ProviderKey]interface{}{}
 			}
 
-			for name, p := range providerMap {
-				// If the name of the provider is already defined, panic.
-				if _, ok := providerMapWithHandler[handlerName][name]; ok {
-					log.Panicf("Provider name conflict: %s is already defined in handler %s", name, handlerName)
-				}
-
-				providerMapWithHandler[handlerName][name] = p
-
+			for _, p := range providerMap {
 				casted, ok := extractEmbeddedProvider(p)
-
 				if !ok {
-					log.Panicf("Provider %s is not a provider", name)
+					log.Panicf("Provider %v is not a provider", p)
 				}
 
+				// Get the key of the provider
+				pKey := getKeyFromProvider(*casted)
+
+				// If the provider is already defined in the handler --> show warning, then skip
+				if _, ok := providerMapWithHandler[handlerName][pKey]; ok {
+					log.Warnf("Provider type conflict: %s from module %s is already defined in handler %s. Skipping", pKey.Name, m.Name, handlerName)
+					continue
+				}
+
+				// Add to the list
+				providerMapWithHandler[handlerName][pKey] = p
 				providerList = append(providerList, casted)
 			}
 		}
@@ -113,33 +132,43 @@ func DefineModule(option ModuleOption) *Module {
 		}
 
 		if _, ok := providerMapWithHandler[p.Handler]; !ok {
-			providerMapWithHandler[p.Handler] = map[string]interface{}{}
+			providerMapWithHandler[p.Handler] = map[ProviderKey]interface{}{}
 		}
 
-		if _, ok := providerMapWithHandler[p.Handler][p.Name]; ok {
-			log.Panicf("Provider name conflict: %s is already defined in handler %s", p.Name, "default")
+		pKey := getKeyFromProvider(*p)
+
+		// If the provider is already defined in the handler --> show warning, then skip
+		if _, ok := providerMapWithHandler[p.Handler][pKey]; ok {
+			log.Warnf("Provider name conflict: %s is already defined in handler %s. Skipping", pKey.Name, p.Handler)
+			continue
 		}
 
-		providerMapWithHandler[p.Handler][p.Name] = &p
-		providerList = append(providerList, &p)
+		// Add to the list
+		providerMapWithHandler[p.Handler][pKey] = p
+		providerList = append(providerList, p)
 	}
 
 	for _, c := range option.Controllers {
 		// If the p.Handler is controller --> show warning
 		if c.Handler != "controller" {
-			log.Warnf("Controller %s is not a controller. Please check the type", c.Name)
+			log.Panicf("Controller %s is not a controller. Only controllers must be given to the controllers option", c.Name)
 		}
 
 		// Add to the "default" handler
 		if _, ok := providerMapWithHandler[c.Handler]; !ok {
-			providerMapWithHandler[c.Handler] = map[string]interface{}{}
+			providerMapWithHandler[c.Handler] = map[ProviderKey]interface{}{}
 		}
 
-		if _, ok := providerMapWithHandler[c.Handler][c.Name]; ok {
-			log.Panicf("Provider name conflict: %s is already defined in handler %s", c.Name, "default")
+		pKey := getKeyFromProvider(c.Provider)
+
+		// If the controller is already defined in the handler --> show warning, then skip
+		if _, ok := providerMapWithHandler[c.Handler][pKey]; ok {
+			log.Warnf("Provider type conflict: %s is already defined in handler %s. Skipping", pKey.Name, c.Handler)
+			continue
 		}
 
-		providerMapWithHandler[c.Handler][c.Name] = &c
+		// Add to the list
+		providerMapWithHandler[c.Handler][pKey] = c
 		providerList = append(providerList, &c.Provider)
 	}
 
@@ -155,6 +184,6 @@ func (m *Module) GetProviderList() []*provider.Provider {
 	return m.providerList
 }
 
-func (m *Module) GetProviderMapOfHandler(handler string) map[string]interface{} {
+func (m *Module) GetProviderMapOfHandler(handler string) map[ProviderKey]interface{} {
 	return m.providerMapWithHandler[handler]
 }

@@ -22,14 +22,14 @@ type (
 	Module       = module.Module
 
 	// Provider related
-	ProviderDefinition = provider.Provider
-	ProviderOption     = provider.ProviderOption
+	Provider       = provider.Provider
+	ProviderOption = provider.ProviderOption
 
 	// Controller related
-	IController          = controller.IController
-	ControllerOption     = controller.ControllerOption
-	ControllerDefinition = controller.Controller
-	RouteSpec            = controller.RouteSpec
+	IController      = controller.IController
+	ControllerOption = controller.ControllerOption
+	Controller       = controller.Controller
+	RouteSpec        = controller.RouteSpec
 
 	// Engine related
 	IServerEngine      = engine.IServerEngine
