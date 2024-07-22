@@ -119,7 +119,8 @@ func (e *GinHttpEngine) Stop() {
 	}
 }
 
-func CreateGinHttpEngine(logger logger.Logger) (e *gin.Engine) {
+// Internal function to create a new gin engine
+func createGinHttpEngine(logger logger.Logger) (e *gin.Engine) {
 	// Set gin to release mode (suppresses debug messages)
 	gin.SetMode(gin.ReleaseMode)
 
@@ -144,7 +145,7 @@ func NewGinHttpEngine(options ...ServerEngineOption) *GinHttpEngine {
 	})
 
 	// Create gin engine with the logger
-	e := CreateGinHttpEngine(l)
+	e := createGinHttpEngine(l)
 
 	return &GinHttpEngine{
 		engine:          e,

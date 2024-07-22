@@ -112,7 +112,8 @@ func (e *EchoHttpEngine) Stop() {
 	}
 }
 
-func CreateEchoHttpEngine(logger logger.Logger) (e *echo.Echo) {
+// Internal function to create a new echo engine with the logger middleware
+func createEchoHttpEngine(logger logger.Logger) (e *echo.Echo) {
 
 	e = echo.New()
 
@@ -151,7 +152,7 @@ func NewEchoHttpEngine(options ...ServerEngineOption) *EchoHttpEngine {
 	})
 
 	// Create gin engine with the logger
-	e := CreateEchoHttpEngine(l)
+	e := createEchoHttpEngine(l)
 
 	return &EchoHttpEngine{
 		engine:          e,

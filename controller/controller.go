@@ -40,6 +40,10 @@ type (
 	}
 )
 
+const (
+	HandlerName string = "controller"
+)
+
 func checkInstantiatorInterface(instantiator interface{}) {
 	// Check if the instantiator's result type implements IController.
 	instantiatorType := reflect.TypeOf(instantiator)
@@ -65,7 +69,7 @@ func DefineController(option ControllerOption) *Controller {
 		Provider: provider.Provider{
 			Name:         option.Name,
 			Instantiator: option.Instantiator,
-			Handler:      "controller",
+			Handler:      HandlerName,
 		},
 		RootPath: option.RootPath,
 	}
