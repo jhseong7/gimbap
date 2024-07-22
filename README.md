@@ -187,6 +187,18 @@ This framework provides the following features:
 This project uses the following third-party libraries:
 
 - **Library Name:** uber-go/fx
-  - **Purpose:** Used managing dependency injection with-in the app
+  - **Purpose:** Used managing dependency management in the `FxDependencyManager`
   - **License:** MIT License. [Link](https://github.com/uber-go/fx/blob/master/LICENSE)
   - **Link:** [https://github.com/uber-go/fx](https://github.com/uber-go/fx)
+- **Library Name:** gin-gonic/gin
+  - **Purpose:** Used the internal server engine `GinHttpEngine`
+  - **License:** MIT License. [Link](https://github.com/gin-gonic/gin/blob/master/LICENSE)
+  - **Link:** [https://github.com/gin-gonic/gin](https://github.com/gin-gonic/gin)
+- **Library Name:** gofiber/fiber
+  - **Purpose:** Used the internal server engine `FiberHttpEngine`
+  - **License:** MIT License. [Link](https://github.com/gofiber/fiber/blob/master/LICENSE)
+  - **Link:** [https://github.com/gofiber](https://github.com/gofiber)
+- **Library Name:** labstack/echo
+  - **Purpose:** Used the internal server engine `EchoHttpEngine`
+  - **License:** MIT License. [Link](https://github.com/labstack/echo/blob/master/LICENSE)
+  - **Link:** [https://github.com/labstack/echo](https://github.com/labstack/echo)
