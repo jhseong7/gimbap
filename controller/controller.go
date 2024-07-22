@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/provider"
 )
 
@@ -62,7 +62,7 @@ func DefineController(option ControllerOption) *Controller {
 	checkInstantiatorInterface(option.Instantiator)
 
 	if option.Name == "" {
-		logger.NewLogger(logger.LoggerOption{Name: "DefineController"}).Panicf("Controller name cannot be empty")
+		ecl.NewLogger(ecl.LoggerOption{Name: "DefineController"}).Panicf("Controller name cannot be empty")
 	}
 
 	return &Controller{

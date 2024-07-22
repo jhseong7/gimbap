@@ -6,7 +6,7 @@ package module
 import (
 	"reflect"
 
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/provider"
 )
@@ -85,7 +85,7 @@ func getKeyFromProvider(p provider.Provider) ProviderKey {
 }
 
 func DefineModule(option ModuleOption) *Module {
-	log := logger.NewLogger(logger.LoggerOption{Name: "DefineModule"})
+	log := ecl.NewLogger(ecl.LoggerOption{Name: "DefineModule"})
 
 	if option.Name == "" {
 		log.Panicf("Module name cannot be empty")

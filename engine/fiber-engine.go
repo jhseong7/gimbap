@@ -6,7 +6,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 
 	"log"
@@ -20,7 +20,7 @@ type (
 		engine          *fiber.App
 		globalApiPrefix string
 
-		logger logger.Logger
+		logger ecl.Logger
 	}
 
 	FiberHttpEngineOption struct {
@@ -30,7 +30,7 @@ type (
 
 	customLogger struct {
 		stdlog *log.Logger
-		logger logger.Logger
+		logger ecl.Logger
 	}
 )
 
@@ -125,7 +125,7 @@ func (e *FiberHttpEngine) Stop() {
 }
 
 // Internal function to create a new fiber engine
-func createFiberHttpEngine(logger logger.Logger, fiberConfig fiber.Config) (e *fiber.App) {
+func createFiberHttpEngine(logger ecl.Logger, fiberConfig fiber.Config) (e *fiber.App) {
 	// Inject the custom logger to the fiber logger
 	// Initialize the custom logger
 
@@ -146,7 +146,7 @@ func NewFiberHttpEngine(options ...FiberHttpEngineOption) *FiberHttpEngine {
 	}
 
 	// Create logger
-	l := logger.NewLogger(logger.LoggerOption{
+	l := ecl.NewLogger(ecl.LoggerOption{
 		Name: "FiberHttpEngine",
 	})
 

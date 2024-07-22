@@ -1,7 +1,7 @@
 package engine
 
 import (
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 )
 
@@ -9,7 +9,7 @@ type (
 	NullEngine struct {
 		IServerEngine
 
-		logger logger.Logger
+		logger ecl.Logger
 
 		stopFlag chan string
 	}
@@ -37,7 +37,7 @@ func (e *NullEngine) Stop() {
 
 func NewNullEngine() *NullEngine {
 	return &NullEngine{
-		logger: logger.NewLogger(logger.LoggerOption{
+		logger: ecl.NewLogger(ecl.LoggerOption{
 			Name: "NullEngine",
 		}),
 	}
