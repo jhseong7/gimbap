@@ -124,12 +124,12 @@ import "github.com/jhseong7/gimbap"
 
 var RootModule = gimbap.DefineModule(gimbap.ModuleOption{
 	Name: "RootModule",
-	SubModules: []gimbap.Module{
-		*ProviderA,
-		*ProviderB,
-    *ProviderC,
-    *ProviderD,
-    *ProviderE
+	SubModules: []*gimbap.Module{
+		ProviderA,
+		ProviderB,
+    ProviderC,
+    ProviderD,
+    ProviderE
 	},
 })
 

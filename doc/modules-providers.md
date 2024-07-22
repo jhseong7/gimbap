@@ -207,11 +207,11 @@ import "github.com/jhseong7/gimbap"
 
 var ExampleModule = gimbap.DefineModule(gimbap.ModuleOption{
   Name: "ExampleModule",
-  Providers: []gimbap.Provider{
-    *SaltProvider,
+  Providers: []*gimbap.Provider{
+    SaltProvider,
     FoodProvider,
   },
-  Controllers: []gimbap.Controller{
+  Controllers: []*gimbap.Controller{
     FoodControllerProvider,
   },
 })
@@ -224,7 +224,7 @@ Modules can also be combined to create a bigger module that can be used to start
 ```golang
 var BiggerModule = gimbap.DefineModule(gimbap.ModuleOption{
   Name: "BiggerModule",
-  SubModules: []gimbap.Module{
+  SubModules: []*gimbap.Module{
     ExampleModule,
     AnotherModule,
   },
@@ -258,7 +258,7 @@ func main() {
     AppName:   "SampleApp",
     AppModule: gimbap.DefineModule(gimbap.ModuleOption{
       Name: "RootModule",
-      SubModules: []gimbap.Module{
+      SubModules: []*gimbap.Module{
         ExampleModule,
         AnotherModule,
       },
