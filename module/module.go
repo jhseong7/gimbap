@@ -4,7 +4,6 @@
 package module
 
 import (
-	"fmt"
 	"reflect"
 
 	logger "github.com/jhseong7/ecl"
@@ -56,8 +55,6 @@ func extractEmbeddedProvider(p interface{}) (*provider.Provider, bool) {
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := v.Type().Field(i)
-
-		fmt.Printf("Field: %s, Type: %s\n", fieldType.Name, field.Type().String())
 
 		// If the type is an embedded struct --> check if it is a provider
 		if fieldType.Anonymous {
