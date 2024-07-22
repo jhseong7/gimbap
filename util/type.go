@@ -3,11 +3,11 @@ package util
 import (
 	"reflect"
 
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 )
 
 var (
-	log = logger.NewLogger(logger.LoggerOption{
+	log = ecl.NewLogger(ecl.LoggerOption{
 		Name: "UtilLogger",
 	})
 )

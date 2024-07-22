@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 )
 
@@ -24,12 +24,12 @@ type (
 
 		server *http.Server
 
-		logger logger.Logger
+		logger ecl.Logger
 	}
 
 	GinLogger struct {
 		io.Writer
-		logger logger.Logger
+		logger ecl.Logger
 	}
 )
 
@@ -120,7 +120,7 @@ func (e *GinHttpEngine) Stop() {
 }
 
 // Internal function to create a new gin engine
-func createGinHttpEngine(logger logger.Logger) (e *gin.Engine) {
+func createGinHttpEngine(logger ecl.Logger) (e *gin.Engine) {
 	// Set gin to release mode (suppresses debug messages)
 	gin.SetMode(gin.ReleaseMode)
 
@@ -140,7 +140,7 @@ func NewGinHttpEngine(options ...ServerEngineOption) *GinHttpEngine {
 	}
 
 	// Create logger
-	l := logger.NewLogger(logger.LoggerOption{
+	l := ecl.NewLogger(ecl.LoggerOption{
 		Name: "GinHttpEngine",
 	})
 

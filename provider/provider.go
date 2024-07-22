@@ -3,9 +3,7 @@
 // This file defines the provider interface and its implementation.
 package provider
 
-import (
-	logger "github.com/jhseong7/ecl"
-)
+import "github.com/jhseong7/ecl"
 
 type (
 	Provider struct {
@@ -29,7 +27,7 @@ const (
 // Define a provider
 func DefineProvider(option ProviderOption) *Provider {
 	if option.Name == "" {
-		logger.NewLogger(logger.LoggerOption{Name: "DefineProvider"}).Panicf("Provider name cannot be empty")
+		ecl.NewLogger(ecl.LoggerOption{Name: "DefineProvider"}).Panicf("Provider name cannot be empty")
 	}
 
 	return &Provider{

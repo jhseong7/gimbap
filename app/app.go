@@ -6,7 +6,8 @@ import (
 	"reflect"
 	"syscall"
 
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
+
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/dependency"
 	"github.com/jhseong7/gimbap/engine"
@@ -29,7 +30,7 @@ type (
 
 		instanceMap map[reflect.Type]reflect.Value // Map to save instances of providers.
 
-		logger logger.Logger
+		logger ecl.Logger
 
 		// Lifecycle listeners
 		onStartListeners []func()
@@ -86,9 +87,9 @@ func GetProvider[T interface{}](app GimbapApp, prov T) (ret T) {
 // This is the entry point to create a Gimbap application.
 func CreateApp(option AppOption) *GimbapApp {
 	// Setup global logger name
-	logger.SetAppName(option.AppName)
+	ecl.SetAppName(option.AppName)
 
-	l := logger.NewLogger(logger.LoggerOption{
+	l := ecl.NewLogger(ecl.LoggerOption{
 		Name: "GIMBAP",
 	})
 
@@ -320,7 +321,7 @@ func (app *GimbapApp) AddOnStopListener(listener func()) {
 // Set a custom logger for the app.
 //
 // This will override the default logger.
-func (app *GimbapApp) SetCustomLogger(logger logger.Logger) {
+func (app *GimbapApp) SetCustomLogger(logger ecl.Logger) {
 	app.logger = logger
 }
 

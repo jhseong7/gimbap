@@ -4,7 +4,7 @@ import (
 	"context"
 	"reflect"
 
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/provider"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
@@ -13,7 +13,7 @@ import (
 type (
 	FxDependencyManager struct {
 		IDependencyManager
-		logger logger.Logger
+		logger ecl.Logger
 		fxApp  *fx.App
 	}
 )
@@ -91,6 +91,6 @@ func (f *FxDependencyManager) OnStop() {
 
 func NewFxManager() *FxDependencyManager {
 	return &FxDependencyManager{
-		logger: logger.NewLogger(logger.LoggerOption{Name: "FxDependencyManager"}),
+		logger: ecl.NewLogger(ecl.LoggerOption{Name: "FxDependencyManager"}),
 	}
 }

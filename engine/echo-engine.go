@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"time"
 
-	logger "github.com/jhseong7/ecl"
+	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 
 	echo "github.com/labstack/echo/v4"
@@ -22,7 +22,7 @@ type (
 		engine          *echo.Echo
 		globalApiPrefix string
 
-		logger logger.Logger
+		logger ecl.Logger
 	}
 )
 
@@ -113,7 +113,7 @@ func (e *EchoHttpEngine) Stop() {
 }
 
 // Internal function to create a new echo engine with the logger middleware
-func createEchoHttpEngine(logger logger.Logger) (e *echo.Echo) {
+func createEchoHttpEngine(logger ecl.Logger) (e *echo.Echo) {
 
 	e = echo.New()
 
@@ -147,7 +147,7 @@ func NewEchoHttpEngine(options ...ServerEngineOption) *EchoHttpEngine {
 	}
 
 	// Create logger
-	l := logger.NewLogger(logger.LoggerOption{
+	l := ecl.NewLogger(ecl.LoggerOption{
 		Name: "EchoHttpEngine",
 	})
 
