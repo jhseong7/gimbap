@@ -12,7 +12,9 @@ And each app has some core features like below:
 
 ## Dependency Management
 
-The underlying dependency injection management of GIMBAP is done by `uber-go/fx`.
+The dependency management of GIMBAP is managed by the module `IDependencyManger`.
+
+The manager takes a set of providers and returns a map of instances with the dependencies resolved.
 
 GIMBAP manages the chain of dependencies given through the `Module` struct, automatically injects the dependency provides and initialized at least one instance of the given providers.
 
@@ -21,6 +23,8 @@ For example, if the app is given a module with a provider with a struct of `Serv
 This does not only apply to Service level providers. Any Go struct that is unique can be used as a provider where all components that require that as a parameter of the constructor will be automatically injected by the app.
 
 please check the Modules and Providers section for more information. [Link](./modules-providers.md)
+
+The current default (and only for now) dependency manager is the `FxDependencyManager` which uses `uber-go/fx` as its core resolver.
 
 ### Limitations
 
@@ -37,7 +41,7 @@ Since DI works by identifying the given struct's type and building the dependenc
 
 GIMBAP always requires a single server to run the application. This server is build in a modular form called the `Server Engine`
 
-A HTServerTP Engine must implement the interface `engine.IServerEngine` where the specs are as follows
+A Server Engine must implement the interface `engine.IServerEngine` where the specs are as follows
 
 ```golang
 type IServerEngine interface {
@@ -100,3 +104,26 @@ Examples of microservices are:
 - TCP servers
 
 The key difference between a microservice and a microservice is that a microservice are treated like dependency providers, thus are injected with dependencies if there are any.
+
+Microservices must implement the interface `IMicroServices` which is defined as follows.
+
+```golang
+type IMicroService interface {
+  // Start the microservice
+  Start()
+
+  // Gracefully stop the microservice
+  Stop()
+}
+```
+
+The only thing GIMBAP manages for the microservices are:
+
+- Lifecycle methods
+- Dependency injections
+
+So anything that needs to reside with the main server engine can be implemented as a MicroService.
+
+The microservices must stop within 5 seconds when the Start(), Or Stop() is called. This is to prevent any blocking events on app closing.
+
+The start and stop of the microservices are handled in order of the which it was added to the app via `app.AddMicroServices`

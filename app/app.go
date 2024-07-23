@@ -5,6 +5,7 @@ import (
 	"os/signal"
 	"reflect"
 	"syscall"
+	"time"
 
 	"github.com/jhseong7/ecl"
 
@@ -44,7 +45,7 @@ type (
 		functionsWithInjection []*provider.Provider
 
 		// microservice list
-		microservices []microservice.MicroServiceProvider
+		microservices []*microservice.MicroServiceProvider
 
 		// flag to hold the shutdown signal until all the components stop
 		shutdownFlag chan string
@@ -64,6 +65,11 @@ type (
 		// Option injector with provided values from the app module
 		WithProvided interface{}
 	}
+)
+
+const (
+	MicroServiceMaxStartTime time.Duration = 5 * time.Second
+	MicroServiceMaxStopTime  time.Duration = 5 * time.Second
 )
 
 // Function to get a provider from the app.
@@ -100,7 +106,7 @@ func CreateApp(option AppOption) *GimbapApp {
 	// Http engine
 	var e engine.IServerEngine
 	if option.ServerEngine == nil {
-		l.Log("HttpEngine is not set. Using default engine: GinHttpEngine")
+		l.Debug("HttpEngine is not set. Using default engine: GinHttpEngine")
 		e = engine.NewGinHttpEngine()
 	} else {
 		e = option.ServerEngine
@@ -109,7 +115,7 @@ func CreateApp(option AppOption) *GimbapApp {
 	// Dependency manager
 	var d dependency.IDependencyManager
 	if option.DepManager == nil {
-		l.Log("DependencyManager is not set. Using default manager: FxManager")
+		l.Debug("DependencyManager is not set. Using default manager: FxManager")
 		d = dependency.NewFxManager()
 	} else {
 		d = option.DepManager
@@ -148,7 +154,7 @@ func (app *GimbapApp) registerControllerInstances() {
 		// Get the return type of the instantiator (this will be the controller's type)
 		instanceType, ok := util.DeriveTypeFromInstantiator(c.Instantiator)
 		if !ok {
-			app.logger.Panicf("Failed to derive type from instantiator: %s", c.Instantiator)
+			app.logger.Panicf("Failed to derive type from instantiator: %v", c.Instantiator)
 		}
 
 		// Get the instance from the instance map
@@ -168,61 +174,69 @@ func (app *GimbapApp) registerControllerInstances() {
 	}
 }
 
+// Internal function to get each active microservice, and handler with the given handler function
+func (app *GimbapApp) forAllMicroservices(loopHandler func(microservice.IMicroService, *microservice.MicroServiceProvider)) {
+	// Get the instances with the microservice handler
+	for _, m := range app.microservices {
+		// Get the instance from the instantiator
+		instanceType, ok := util.DeriveTypeFromInstantiator(m.Instantiator)
+		if !ok {
+			app.logger.Panicf("Failed to derive type from instantiator. %v", m.Instantiator)
+		}
+
+		// Get the instance value from the instance map
+		instVal, ok := app.instanceMap[instanceType]
+		if !ok {
+			app.logger.Panicf("Microservice instance not found in the instance map: %s", instanceType.String())
+		}
+
+		// Bind the microservice instance to the microservice interface
+		inst, ok := instVal.Interface().(microservice.IMicroService)
+		if !ok {
+			app.logger.Panicf("Microservice instance does not implement the IMicroservice: %s", instanceType.String())
+		}
+
+		// Call start of the inst
+		loopHandler(inst, m)
+	}
+}
+
 // Check if the microservices are a valid type (implements IMicroService),
 // then start the microservices using go routines. (non-blocking)
 func (app *GimbapApp) startMicroServices() {
-	for _, m := range app.microservices {
-		// Get the return type
-		instanceType, ok := util.DeriveTypeFromInstantiator(m.Instantiator)
-		if !ok {
-			app.logger.Panicf("Failed to derive type from instantiator: %s", m.Instantiator)
+	app.forAllMicroservices(func(micro microservice.IMicroService, p *microservice.MicroServiceProvider) {
+		app.logger.Logf("Starting microservice %s", p.Name)
+
+		// Each micro service has 5 seconds to stop gracefully
+		success := util.TimeoutJob(func() {
+			micro.Start()
+		},
+			MicroServiceMaxStartTime,
+		)
+
+		if !success {
+			app.logger.Warnf("Microservice %s failed to start on time. (within %s)", p.Name, MicroServiceMaxStartTime.String())
 		}
-
-		// Get the instance from the instance map
-		instVal, ok := app.instanceMap[instanceType]
-		if !ok {
-			app.logger.Panicf("Microservice instance not found in instance map: %s", instanceType.String())
-		}
-
-		// Check if the instance implements IMicroService
-		if !microservice.IsMicroService(instVal.Interface()) {
-			app.logger.Panicf("Microservice instance does not implement IMicroService: %s", instanceType.String())
-		}
-
-		// Start the microservice
-		go instVal.Interface().(microservice.IMicroService).Start()
-
-		app.logger.Logf("Microservice started: %s", m.Name)
-	}
+	})
 }
 
 // Stop the microservices gracefully.
 func (app *GimbapApp) stopMicroServices() {
-	app.logger.Log("Stopping microservices")
+	app.forAllMicroservices(func(micro microservice.IMicroService, p *microservice.MicroServiceProvider) {
+		app.logger.Logf("Stopping microservice %s", p.Name)
 
-	for _, m := range app.microservices {
-		// Get the return type
-		instanceType, ok := util.DeriveTypeFromInstantiator(m.Instantiator)
-		if !ok {
-			app.logger.Panicf("Failed to derive type from instantiator: %s", m.Instantiator)
+		// Each micro service has 5 seconds to stop gracefully
+		success := util.TimeoutJob(
+			func() {
+				micro.Stop()
+			},
+			MicroServiceMaxStopTime,
+		)
+
+		if !success {
+			app.logger.Warnf("Microservice %s failed to stop on time. (within %s)", p.Name, MicroServiceMaxStopTime.String())
 		}
-
-		// Get the instance from the instance map
-		instVal, ok := app.instanceMap[instanceType]
-		if !ok {
-			app.logger.Panicf("Microservice instance not found in instance map: %s", instanceType.String())
-		}
-
-		// Check if the instance implements IMicroService
-		if !microservice.IsMicroService(instVal.Interface()) {
-			app.logger.Panicf("Microservice instance does not implement IMicroService: %s", instanceType.String())
-		}
-
-		// Stop the microservice (don't use a go routine as we want to stop the app gracefully)
-		instVal.Interface().(microservice.IMicroService).Stop()
-
-		app.logger.Logf("Microservice stopped: %s", m.Name)
-	}
+	})
 }
 
 // Start routine other than the engine
@@ -381,7 +395,7 @@ func (app *GimbapApp) AddMiddleware(middleware ...interface{}) {
 // This will add a microservice to the app.
 // The microservice will start with the app.
 // Multiple microservices can be added.
-func (app *GimbapApp) AddMicroServices(microservices ...microservice.MicroServiceProvider) {
+func (app *GimbapApp) AddMicroServices(microservices ...*microservice.MicroServiceProvider) {
 	if microservices == nil {
 		app.logger.Warn("(AddMicroServices) At least 1 microservice must be added to use this API. Skipping.")
 		return

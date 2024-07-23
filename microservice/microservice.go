@@ -21,10 +21,30 @@ type (
 	MicroServiceProvider struct {
 		provider.Provider
 	}
+
+	MicroServiceProviderOption struct {
+		Name         string
+		Instantiator interface{}
+	}
+)
+
+const (
+	HandlerName = "microservice"
 )
 
 // Check if the input implements the IMicroService interface.
 func IsMicroService(i interface{}) bool {
 	_, ok := i.(IMicroService)
 	return ok
+}
+
+// Define a microservice
+func DefineMicroService(option MicroServiceProviderOption) *MicroServiceProvider {
+	return &MicroServiceProvider{
+		Provider: provider.Provider{
+			Name:         option.Name,
+			Instantiator: option.Instantiator,
+			Handler:      HandlerName,
+		},
+	}
 }
