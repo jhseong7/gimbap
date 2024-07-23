@@ -8,8 +8,6 @@ import (
 
 	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
-
-	"log"
 )
 
 type (
@@ -27,18 +25,7 @@ type (
 		ServerEngineOption
 		FiberConfig fiber.Config
 	}
-
-	customLogger struct {
-		stdlog *log.Logger
-		logger ecl.Logger
-	}
 )
-
-// Map the custom logger to the ecl logger
-func (c *customLogger) Write(p []byte) (n int, err error) {
-	c.logger.Logf(string(p))
-	return len(p), nil
-}
 
 // Check if the handler is valid and cast it to gin.HandlerFunc.
 //
@@ -125,7 +112,7 @@ func (e *FiberHttpEngine) Stop() {
 }
 
 // Internal function to create a new fiber engine
-func createFiberHttpEngine(logger ecl.Logger, fiberConfig fiber.Config) (e *fiber.App) {
+func createFiberHttpEngine(fiberConfig fiber.Config) (e *fiber.App) {
 	// Inject the custom logger to the fiber logger
 	// Initialize the custom logger
 
@@ -151,7 +138,7 @@ func NewFiberHttpEngine(options ...FiberHttpEngineOption) *FiberHttpEngine {
 	})
 
 	// Create gin engine with the logger
-	e := createFiberHttpEngine(l, option.FiberConfig)
+	e := createFiberHttpEngine(option.FiberConfig)
 
 	return &FiberHttpEngine{
 		engine:          e,

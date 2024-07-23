@@ -4,7 +4,7 @@ go 1.21.5
 
 require (
 	github.com/gin-gonic/gin v1.9.1
-	github.com/jhseong7/ecl v0.0.4
+	github.com/jhseong7/ecl v0.0.5-hotfix
 	github.com/labstack/echo/v4 v4.11.4
 	go.uber.org/fx v1.20.1
 )
