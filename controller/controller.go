@@ -41,7 +41,7 @@ type (
 )
 
 const (
-	HandlerName string = "controller"
+	HandlerName provider.ProviderHandlerName = "controller"
 )
 
 func checkInstantiatorInterface(instantiator interface{}) {

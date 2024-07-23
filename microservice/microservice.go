@@ -29,7 +29,7 @@ type (
 )
 
 const (
-	HandlerName = "microservice"
+	HandlerName provider.ProviderHandlerName = "microservice"
 )
 
 // Check if the input implements the IMicroService interface.

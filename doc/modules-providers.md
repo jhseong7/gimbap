@@ -16,8 +16,6 @@ However in Go, the pattern is a bit different from other languages due to limita
 
 Thus, GIMBAP will have a different pattern compared to Spring and NestJS, however the core concept of simple DI will be the same.
 
-GIMBAP uses [uber/fx](https://github.com/uber-go/fx) as it's dependency injection library in the core, and the framework will provide functions and patterns to make it easier to use.
-
 ## Module based Dependency Injection (DI)
 
 GIMBAP introduces `module`s. A module is a collection of `provider`s that are Go structs that need to be injected.
