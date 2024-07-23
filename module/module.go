@@ -9,6 +9,7 @@ import (
 	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/provider"
+	"github.com/jhseong7/gimbap/util"
 )
 
 type (
@@ -42,6 +43,10 @@ type (
 	}
 )
 
+// Logger for the module initialization
+var log = ecl.NewLogger(ecl.LoggerOption{Name: "DefineModule", AppName: "GIMBAP"})
+
+// Extract the embedded provider from the interface. If the interface is a provider, return the provider.
 func extractEmbeddedProvider(p interface{}) (*provider.Provider, bool) {
 	// Return the provider if it is a provider
 	if p, ok := p.(*provider.Provider); ok {
@@ -76,17 +81,17 @@ func extractEmbeddedProvider(p interface{}) (*provider.Provider, bool) {
 
 // Get the key of the provider.
 func getKeyFromProvider(p provider.Provider) ProviderKey {
-	pType := reflect.TypeOf(p)
+	// Get the return type of the Instantiator
+	pType := reflect.TypeOf(p.Instantiator).Out(0)
 
 	return ProviderKey{
 		Type: pType,
-		Name: pType.Name() + "." + p.Name,
+		Name: util.GetFullNameOfType(pType),
 	}
 }
 
+// Define a module and return a module struct.
 func DefineModule(option ModuleOption) *Module {
-	log := ecl.NewLogger(ecl.LoggerOption{Name: "DefineModule"})
-
 	if option.Name == "" {
 		log.Panicf("Module name cannot be empty")
 	}
@@ -113,7 +118,7 @@ func DefineModule(option ModuleOption) *Module {
 
 				// If the provider is already defined in the handler --> show warning, then skip
 				if _, ok := providerMapWithHandler[handlerName][pKey]; ok {
-					log.Warnf("Provider type conflict: %s from module %s is already defined in handler %s. Skipping", pKey.Name, m.Name, handlerName)
+					log.Warnf("Duplicate Provider warning: %s from module %s is already defined in handler [%s]. Skipping", pKey.Name, m.Name, handlerName)
 					continue
 				}
 
@@ -139,7 +144,7 @@ func DefineModule(option ModuleOption) *Module {
 
 		// If the provider is already defined in the handler --> show warning, then skip
 		if _, ok := providerMapWithHandler[p.Handler][pKey]; ok {
-			log.Warnf("Provider name conflict: %s is already defined in handler %s. Skipping", pKey.Name, p.Handler)
+			log.Warnf("Duplicate Provider warning: %s is already defined in handler [%s]. Skipping", pKey.Name, p.Handler)
 			continue
 		}
 
@@ -163,7 +168,7 @@ func DefineModule(option ModuleOption) *Module {
 
 		// If the controller is already defined in the handler --> show warning, then skip
 		if _, ok := providerMapWithHandler[c.Handler][pKey]; ok {
-			log.Warnf("Provider type conflict: %s is already defined in handler %s. Skipping", pKey.Name, c.Handler)
+			log.Warnf("Duplicate Provider warning: %s is already defined in handler [%s]. Skipping", pKey.Name, c.Handler)
 			continue
 		}
 
