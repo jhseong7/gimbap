@@ -36,13 +36,15 @@ type (
 	ServerEngineOption = engine.ServerEngineOption
 
 	// Microservice related
-	IMicroService = microservice.IMicroService
+	IMicroService              = microservice.IMicroService
+	MicroServiceProvider       = microservice.MicroServiceProvider
+	MicroServiceProviderOption = microservice.MicroServiceProviderOption
 )
 
 // Create a Gimbap instance.
 //
 // This is the entry point to create a Gimbap application.
-func CreateApp(option app.AppOption) *app.GimbapApp {
+func CreateApp(option AppOption) *GimbapApp {
 	return app.CreateApp(option)
 }
 
@@ -50,7 +52,7 @@ func CreateApp(option app.AppOption) *app.GimbapApp {
 //
 // Provide the app and the provider type to get the provider instance.
 // If the provider is not found, it will panic.
-func GetProvider[T interface{}](a app.GimbapApp, prov T) (ret T) {
+func GetProvider[T interface{}](a GimbapApp, prov T) (ret T) {
 	return app.GetProvider(a, prov)
 }
 
@@ -58,7 +60,7 @@ func GetProvider[T interface{}](a app.GimbapApp, prov T) (ret T) {
 //
 // This defines a module with the given option.
 // The module is used to determine the dependencies of the providers.
-func DefineModule(option module.ModuleOption) *module.Module {
+func DefineModule(option ModuleOption) *Module {
 	return module.DefineModule(option)
 }
 
@@ -66,7 +68,7 @@ func DefineModule(option module.ModuleOption) *module.Module {
 //
 // This defines a provider with the given option.
 // The provider will be registered to the app and can be injected to the controllers.
-func DefineProvider(option provider.ProviderOption) *provider.Provider {
+func DefineProvider(option ProviderOption) *Provider {
 	return provider.DefineProvider(option)
 }
 
@@ -74,6 +76,13 @@ func DefineProvider(option provider.ProviderOption) *provider.Provider {
 //
 // Defines a special provider that is used to handle RESTful requests.
 // The controller will be registered to the app and can be injected to the other controllers.
-func DefineController(option controller.ControllerOption) *controller.Controller {
+func DefineController(option ControllerOption) *Controller {
 	return controller.DefineController(option)
+}
+
+// Define a microservice
+//
+// Define a special provider for microservices
+func DefineMicroService(option MicroServiceProviderOption) *MicroServiceProvider {
+	return microservice.DefineMicroService(option)
 }
