@@ -19,7 +19,7 @@ type (
 
 		providerList []*provider.Provider
 
-		providerMapWithHandler map[string]map[ProviderKey]interface{}
+		providerMapWithHandler map[provider.ProviderHandlerName]map[ProviderKey]interface{}
 	}
 
 	ModuleOption struct {
@@ -97,7 +97,7 @@ func DefineModule(option ModuleOption) *Module {
 	}
 
 	providerList := []*provider.Provider{}
-	providerMapWithHandler := map[string]map[ProviderKey]interface{}{}
+	providerMapWithHandler := map[provider.ProviderHandlerName]map[ProviderKey]interface{}{}
 
 	// For all the Submodules
 	for _, m := range option.SubModules {
@@ -132,7 +132,7 @@ func DefineModule(option ModuleOption) *Module {
 	// Handle providers
 	for _, p := range option.Providers {
 		// If the p.Handler is controller --> show warning
-		if p.Handler == "controller" {
+		if p.Handler == controller.HandlerName {
 			log.Warnf("Provider %s is defined with handler 'controller'. Use 'Controller' options instead", p.Name)
 		}
 
@@ -155,7 +155,7 @@ func DefineModule(option ModuleOption) *Module {
 
 	for _, c := range option.Controllers {
 		// If the p.Handler is controller --> show warning
-		if c.Handler != "controller" {
+		if c.Handler != controller.HandlerName {
 			log.Panicf("Controller %s is not a controller. Only controllers must be given to the controllers option", c.Name)
 		}
 
@@ -189,6 +189,6 @@ func (m *Module) GetProviderList() []*provider.Provider {
 	return m.providerList
 }
 
-func (m *Module) GetProviderMapOfHandler(handler string) map[ProviderKey]interface{} {
+func (m *Module) GetProviderMapOfHandler(handler provider.ProviderHandlerName) map[ProviderKey]interface{} {
 	return m.providerMapWithHandler[handler]
 }

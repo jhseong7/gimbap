@@ -11,17 +11,19 @@ type (
 		Instantiator interface{}
 
 		// The handler string is used to identify the handler in the provider. (e.g. Controller)
-		Handler string
+		Handler ProviderHandlerName
 	}
 
 	ProviderOption struct {
 		Name         string
 		Instantiator interface{}
 	}
+
+	ProviderHandlerName string
 )
 
 const (
-	HandlerName string = "default"
+	HandlerName ProviderHandlerName = "default"
 )
 
 // Define a provider

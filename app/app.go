@@ -239,36 +239,6 @@ func (app *GimbapApp) stopMicroServices() {
 	})
 }
 
-// Start routine other than the engine
-func (app *GimbapApp) onStart() {
-	app.logger.Log("Running on start routine")
-
-	// NOTE: change this to go routine if there is a risk for deadlock.
-	for _, listener := range app.onStartListeners {
-		listener()
-	}
-
-	// Start the microservices if exists
-	if len(app.microservices) > 0 {
-		app.startMicroServices()
-	}
-}
-
-// Stop routine other than the engine
-func (app *GimbapApp) onStop() {
-	app.logger.Log("Running on stop routine")
-
-	// Call the onStopListeners
-	for _, listener := range app.onStopListeners {
-		listener()
-	}
-
-	// Stop the microservices if exists
-	if len(app.microservices) > 0 {
-		app.stopMicroServices()
-	}
-}
-
 // The internal run function
 //
 // This function will start the engine and call all the onStartListeners.
@@ -320,6 +290,36 @@ func (app *GimbapApp) run() {
 		<-app.shutdownFlag
 		app.logger.Log("App has gracefully stopped")
 	}()
+}
+
+// Start routine other than the engine
+func (app *GimbapApp) onStart() {
+	app.logger.Log("Running on start routine")
+
+	// NOTE: change this to go routine if there is a risk for deadlock.
+	for _, listener := range app.onStartListeners {
+		listener()
+	}
+
+	// Start the microservices if exists
+	if len(app.microservices) > 0 {
+		app.startMicroServices()
+	}
+}
+
+// Stop routine other than the engine
+func (app *GimbapApp) onStop() {
+	app.logger.Log("Running on stop routine")
+
+	// Call the onStopListeners
+	for _, listener := range app.onStopListeners {
+		listener()
+	}
+
+	// Stop the microservices if exists
+	if len(app.microservices) > 0 {
+		app.stopMicroServices()
+	}
 }
 
 // Add an onStart lifecycle listener to the app.
