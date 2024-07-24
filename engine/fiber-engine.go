@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/gofiber/fiber/v2"
+	r "github.com/gofiber/fiber/v2/middleware/recover"
 
 	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
@@ -116,8 +117,10 @@ func createFiberHttpEngine(fiberConfig fiber.Config) (e *fiber.App) {
 	// Inject the custom logger to the fiber logger
 	// Initialize the custom logger
 
-	// TODO: maybe add a way to configure the fiber engine configs
 	e = fiber.New(fiberConfig)
+
+	// Add the recover middleware to the engine
+	e.Use(r.New())
 
 	// TODO: fiber loggers?
 
