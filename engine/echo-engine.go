@@ -117,6 +117,9 @@ func createEchoHttpEngine(logger ecl.Logger) (e *echo.Echo) {
 
 	e = echo.New()
 
+	// Add the recover  middleware to the engine
+	e.Use(middleware.Recover())
+
 	// Don't show the banner of echo and the port number info (it's redundant)
 	e.HideBanner = true
 	e.HidePort = true
