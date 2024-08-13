@@ -74,75 +74,11 @@ const (
 	MicroServiceMaxStopTime  time.Duration = 5 * time.Second
 )
 
-// Function to get a provider from the app.
-//
-// Provide the app and the provider type to get the provider instance.
-// If the provider is not found, it will panic.
-func GetProvider[T interface{}](app GimbapApp, prov T) (ret T) {
-	defer func() {
-		if r := recover(); r != nil {
-			app.logger.Panicf("provider not found: %s", reflect.TypeOf(prov).String())
-		}
-	}()
+/*
 
-	ret = app.instanceMap[reflect.TypeOf(prov)].Interface().(T)
+Private Methods
 
-	return
-}
-
-// Create a Gimbap instance.
-//
-// This is the entry point to create a Gimbap application.
-func CreateApp(option AppOption) *GimbapApp {
-	// Setup global logger name
-	ecl.SetAppName(option.AppName)
-
-	l := ecl.NewLogger(ecl.LoggerOption{
-		Name: "GIMBAP",
-	})
-
-	if option.AppModule == nil {
-		l.Panic("AppModule is not set. Cannot create app.")
-	}
-
-	// Http engine
-	var e engine.IServerEngine
-	if option.ServerEngine == nil {
-		l.Debug("HttpEngine is not set. Using default engine: GinHttpEngine")
-		e = gin_engine.NewGinHttpEngine()
-	} else {
-		e = option.ServerEngine
-	}
-
-	// Dependency manager
-	var d dependency.IDependencyManager
-	if option.DepManager == nil {
-		l.Debug("DependencyManager is not set. Using default manager: FxManager")
-		d = dependency.NewFxManager()
-	} else {
-		d = option.DepManager
-	}
-
-	a := &GimbapApp{
-		appModule: *option.AppModule,
-		appOption: option,
-
-		serverEngine: e,
-		depManager:   d,
-
-		instanceMap: make(map[reflect.Type]reflect.Value),
-
-		logger: l,
-
-		onStartListeners: []func(){},
-		onStopListeners:  []func(){},
-
-		shutdownFlag: make(chan string),
-		stopFlag:     make(chan bool),
-	}
-
-	return a
-}
+*/
 
 // Register the controller instances to the engine.
 func (app *GimbapApp) registerControllerInstances() {
@@ -328,6 +264,12 @@ func (app *GimbapApp) onStop() {
 	}
 }
 
+/*
+
+Public Methods
+
+*/
+
 // Add an onStart lifecycle listener to the app.
 func (app *GimbapApp) AddOnStartListener(listener func()) {
 	app.onStartListeners = append(app.onStartListeners, listener)
@@ -417,11 +359,16 @@ func (app *GimbapApp) AddMicroServices(microservices ...*microservice.MicroServi
 }
 
 // Stop the app
+//
+// This will stop the app gracefully.
 func (app *GimbapApp) Stop() {
 	// Send the stop signal
 	app.stopFlag <- true
 }
 
+// Run the app's lifecycle.
+//
+// This function will start the app and block until the app stops.
 func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	// Catch any panic and log it.
 	defer func() {
@@ -456,9 +403,7 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 	providers := []*provider.Provider{}
 
 	// Collect all providers from the module
-	for _, p := range app.appModule.GetProviderList() {
-		providers = append(providers, p)
-	}
+	providers = append(providers, app.appModule.GetProviderList()...)
 
 	// Collect all microservices
 	for _, m := range app.microservices {
@@ -478,4 +423,80 @@ func (app *GimbapApp) Run(options ...RuntimeOptions) {
 
 	// Run the app (blocking from here)
 	app.run()
+}
+
+/*
+
+Static functions
+
+*/
+
+// Function to get a provider from the app.
+//
+// Provide the app and the provider type to get the provider instance.
+// If the provider is not found, it will panic.
+func GetProvider[T interface{}](app GimbapApp, prov T) (ret T) {
+	defer func() {
+		if r := recover(); r != nil {
+			app.logger.Panicf("provider not found: %s", reflect.TypeOf(prov).String())
+		}
+	}()
+
+	ret = app.instanceMap[reflect.TypeOf(prov)].Interface().(T)
+
+	return
+}
+
+// Create a Gimbap instance.
+//
+// This is the entry point to create a Gimbap application.
+func CreateApp(option AppOption) *GimbapApp {
+	// Setup global logger name
+	ecl.SetAppName(option.AppName)
+
+	l := ecl.NewLogger(ecl.LoggerOption{
+		Name: "GIMBAP",
+	})
+
+	if option.AppModule == nil {
+		l.Panic("AppModule is not set. Cannot create app.")
+	}
+
+	// Http engine
+	var e engine.IServerEngine
+	if option.ServerEngine == nil {
+		l.Debug("HttpEngine is not set. Using default engine: GinHttpEngine")
+		e = gin_engine.NewGinHttpEngine()
+	} else {
+		e = option.ServerEngine
+	}
+
+	// Dependency manager
+	var d dependency.IDependencyManager
+	if option.DepManager == nil {
+		l.Debug("DependencyManager is not set. Using default manager: FxManager")
+		d = dependency.NewFxManager()
+	} else {
+		d = option.DepManager
+	}
+
+	a := &GimbapApp{
+		appModule: *option.AppModule,
+		appOption: option,
+
+		serverEngine: e,
+		depManager:   d,
+
+		instanceMap: make(map[reflect.Type]reflect.Value),
+
+		logger: l,
+
+		onStartListeners: []func(){},
+		onStopListeners:  []func(){},
+
+		shutdownFlag: make(chan string),
+		stopFlag:     make(chan bool),
+	}
+
+	return a
 }
