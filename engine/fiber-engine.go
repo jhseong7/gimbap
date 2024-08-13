@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"crypto/tls"
 	"fmt"
 	"reflect"
 
@@ -92,16 +93,66 @@ func (e *FiberHttpEngine) AddMiddleware(middleware ...interface{}) {
 	}
 }
 
-func (e *FiberHttpEngine) Run(port int) {
+func (e *FiberHttpEngine) Run(option ServerRuntimeOption) {
+	port := option.Port
+
 	if port == 0 {
 		e.logger.Warn("Port is not set. Defaulting to 8080")
 		port = 8080
+	}
+
+	// Load the tls config if it is given
+	// Split the case for TLS and non-TLS
+	if option.TLSOption != nil {
+		e.logger.Logf("Starting the http engine with TLS on port %d", port)
+
+		// If the config is given directly, use it, else load the cert/key files
+		var config *tls.Config
+		if option.TLSOption.Config != nil {
+			// Use the given tls config directly
+			config = option.TLSOption.Config
+		} else {
+			config = &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			}
+		}
+
+		// Only load the cert/key files if the config does not have a certificate
+		if option.TLSOption.CertFile != "" && option.TLSOption.KeyFile != "" && config.Certificates == nil {
+			var err error
+			cert, err := tls.LoadX509KeyPair(option.TLSOption.CertFile, option.TLSOption.KeyFile)
+			if err != nil {
+				e.logger.Fatalf("Failed to load TLS config: %s", err)
+			}
+
+			config = &tls.Config{
+				MinVersion:   tls.VersionTLS12,
+				Certificates: []tls.Certificate{cert},
+			}
+		}
+
+		// If the certificates are not loaded, panic
+		if config.Certificates == nil {
+			e.logger.Fatalf(
+				"Failed to load TLS config: At least one of tls.Config.Certificates or 'CertFile and KeyFile' are required",
+			)
+		}
+
+		// Create a listener with the tls config
+		ln, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), config)
+		if err != nil {
+			e.logger.Fatalf("Failed to create a tls listener: %s", err)
+		}
+
+		e.engine.Listener(ln)
+		return
 	}
 
 	e.logger.Logf("Starting the http engine on port %d", port)
 
 	// TODO: add a way to set cert and key for https
 	e.engine.Listen(fmt.Sprintf(":%d", port))
+
 }
 
 func (e *FiberHttpEngine) Stop() {

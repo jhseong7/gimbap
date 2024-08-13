@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -87,13 +88,13 @@ func (e *GinHttpEngine) AddMiddleware(middleware ...interface{}) {
 	}
 }
 
-func (e *GinHttpEngine) Run(port int) {
+func (e *GinHttpEngine) Run(option ServerRuntimeOption) {
+	port := option.Port
+
 	if port == 0 {
 		e.logger.Warn("Port is not set. Defaulting to 8080")
 		port = 8080
 	}
-
-	e.logger.Logf("Starting the http engine on port %d", port)
 
 	// Create an http server
 	e.server = &http.Server{
@@ -101,8 +102,63 @@ func (e *GinHttpEngine) Run(port int) {
 		Handler: e.engine,
 	}
 
-	// Start the server
-	e.server.ListenAndServe()
+	// Split the case for TLS and non-TLS
+	if option.TLSOption != nil {
+		e.logger.Logf("Starting the http engine with TLS on port %d", port)
+
+		// If the config is given directly, use it, else load the cert/key files
+		var config *tls.Config
+		if option.TLSOption.Config != nil {
+			// Use the given tls config directly
+			config = option.TLSOption.Config
+		} else {
+			config = &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			}
+		}
+
+		// Only load the cert/key files if the config does not have a certificate
+		if option.TLSOption.CertFile != "" && option.TLSOption.KeyFile != "" && config.Certificates == nil {
+			var err error
+			cert, err := tls.LoadX509KeyPair(option.TLSOption.CertFile, option.TLSOption.KeyFile)
+			if err != nil {
+				e.logger.Fatalf("Failed to load TLS config: %s", err)
+			}
+
+			config = &tls.Config{
+				MinVersion:   tls.VersionTLS12,
+				Certificates: []tls.Certificate{cert},
+			}
+		}
+
+		// If the certificates are not loaded, panic
+		if config.Certificates == nil {
+			e.logger.Fatalf(
+				"Failed to load TLS config: At least one of tls.Config.Certificates or 'CertFile and KeyFile' are required",
+			)
+		}
+
+		// Create a listener with the tls config
+		tlsListener, err := tls.Listen("tcp", e.server.Addr, config)
+		if err != nil {
+			e.logger.Fatalf("Failed to create a tls listener: %s", err)
+		}
+
+		// Run the server with the tls listener
+		if err := e.server.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
+			e.logger.Fatalf("Failed to start the http engine: %s", err)
+		}
+
+		return
+	}
+
+	e.logger.Logf("Starting the http engine on port %d", port)
+
+	// Start the server. Http mode with no TLS
+	if err := e.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		e.logger.Fatalf("Failed to start the http engine: %s", err)
+	}
+
 }
 
 func (e *GinHttpEngine) Stop() {
