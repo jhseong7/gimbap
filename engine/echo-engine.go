@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"reflect"
 	"time"
 
@@ -21,6 +23,8 @@ type (
 		// The underlying http engine
 		engine          *echo.Echo
 		globalApiPrefix string
+
+		server *http.Server
 
 		logger ecl.Logger
 	}
@@ -88,21 +92,70 @@ func (e *EchoHttpEngine) AddMiddleware(middleware ...interface{}) {
 	}
 }
 
-func (e *EchoHttpEngine) Run(port int) {
+func (e *EchoHttpEngine) Run(option ServerRuntimeOption) {
+	port := option.Port
+
 	if port == 0 {
 		e.logger.Warn("Port is not set. Defaulting to 8080")
 		port = 8080
 	}
 
 	e.logger.Logf("Starting the http engine on port %d", port)
-	e.engine.Start(fmt.Sprintf(":%d", port))
+
+	// Create an http server
+	e.server = &http.Server{
+		Addr:    fmt.Sprintf(":%d", port),
+		Handler: e.engine,
+	}
+
+	// Split the case for TLS and non-TLS
+	if option.TLSOption != nil {
+		e.logger.Logf("Starting the http engine with TLS on port %d", port)
+
+		// If the config is given directly, use it, else load the cert/key files
+		var config *tls.Config
+		if option.TLSOption.tlsConfig != nil {
+			config = option.TLSOption.tlsConfig
+		} else {
+			var err error
+			cert, err := tls.LoadX509KeyPair(option.TLSOption.CertFile, option.TLSOption.KeyFile)
+			if err != nil {
+				e.logger.Fatalf("Failed to load TLS config: %s", err)
+			}
+
+			config = &tls.Config{
+				MinVersion:   tls.VersionTLS12,
+				Certificates: []tls.Certificate{cert},
+			}
+		}
+
+		// Create a listener with the tls config
+		tlsListener, err := tls.Listen("tcp", e.server.Addr, config)
+		if err != nil {
+			e.logger.Fatalf("Failed to create a tls listener: %s", err)
+		}
+
+		// Run the server with the tls listener
+		if err := e.server.Serve(tlsListener); err != nil && err != http.ErrServerClosed {
+			e.logger.Fatalf("Failed to start the http engine: %s", err)
+		}
+
+		return
+	}
+
+	// Start the server. Http mode with no TLS
+	if err := e.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		e.logger.Fatalf("Failed to start the http engine: %s", err)
+	}
 }
 
 func (e *EchoHttpEngine) Stop() {
 	e.logger.Log("Stopping the http engine (Max 5 seconds)")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := e.engine.Shutdown(ctx); err != nil {
+
+	// NOTE: shutdown through the server, not the engine as it was started with the server
+	if err := e.server.Shutdown(ctx); err != nil {
 		e.logger.Fatalf("Failed to shutdown the http engine: %v", err)
 	}
 

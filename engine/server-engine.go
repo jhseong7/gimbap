@@ -5,6 +5,7 @@
 package engine
 
 import (
+	"crypto/tls"
 	"fmt"
 	"reflect"
 	"runtime"
@@ -20,7 +21,7 @@ type (
 		RegisterController(rootPath string, controller controller.IController)
 
 		// Run the server on the specified port
-		Run(port int)
+		Run(option ServerRuntimeOption)
 
 		// Stop the server gracefully
 		// Must implement a timeout if there is a possibility of a hanging.
@@ -33,6 +34,21 @@ type (
 
 	ServerEngineOption struct {
 		GlobalApiPrefix string
+	}
+
+	TLSOption struct {
+		// The path to the certificate/key files
+		CertFile string
+		KeyFile  string
+
+		// The tls config can be given directly. In this case, the CertFile and KeyFile will be ignored.
+		tlsConfig *tls.Config
+	}
+
+	ServerRuntimeOption struct {
+		Port int
+
+		TLSOption *TLSOption
 	}
 )
 

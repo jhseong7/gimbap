@@ -16,6 +16,7 @@ type (
 	AppOption      = app.AppOption
 	GimbapApp      = app.GimbapApp
 	RuntimeOptions = app.RuntimeOptions
+	TLSOption      = engine.TLSOption
 
 	// Module related
 	ModuleOption = module.ModuleOption

@@ -60,7 +60,8 @@ type (
 	}
 
 	RuntimeOptions struct {
-		Port int
+		Port      int
+		TLSOption *engine.TLSOption
 
 		// Option injector with provided values from the app module
 		WithProvided interface{}
@@ -282,7 +283,11 @@ func (app *GimbapApp) run() {
 
 	// Start the engine
 	app.logger.Log("App started")
-	app.serverEngine.Run(runtimeOpts.Port) // Blocking from here
+
+	app.serverEngine.Run(engine.ServerRuntimeOption{
+		Port:      runtimeOpts.Port,
+		TLSOption: runtimeOpts.TLSOption,
+	}) // Blocking from here
 
 	// Defer function that blocks until the stop signal is received.
 	defer func() {
