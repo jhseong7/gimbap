@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	r "github.com/gofiber/fiber/v2/middleware/recover"
@@ -160,11 +161,26 @@ func (e *FiberHttpEngine) Run(option engine.ServerRuntimeOption) {
 }
 
 func (e *FiberHttpEngine) Stop() {
-	e.logger.Log("Stopping the http engine")
+	e.logger.Log("Stopping the http engine (Max 5 seconds)")
 
-	if err := e.engine.Shutdown(); err != nil {
+	if err := e.engine.ShutdownWithTimeout(5 * time.Second); err != nil {
 		e.logger.Fatalf("Failed to shutdown the http engine: %v", err)
 	}
+}
+
+func (e *FiberHttpEngine) AddStatic(prefix, root string, config ...interface{}) {
+	// Try and cast the config to fiber.Static
+	var fiberStaticConfig fiber.Static
+	if len(config) > 0 {
+		fiberStaticConfig = config[0].(fiber.Static)
+		defer func() {
+			if r := recover(); r != nil {
+				e.logger.Panicf("Failed to add static files to the engine: %s", r)
+			}
+		}()
+	}
+
+	e.engine.Static(prefix, root, fiberStaticConfig)
 }
 
 // Internal function to create a new fiber engine
