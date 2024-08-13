@@ -144,15 +144,18 @@ func (e *FiberHttpEngine) Run(option ServerRuntimeOption) {
 			e.logger.Fatalf("Failed to create a tls listener: %s", err)
 		}
 
-		e.engine.Listener(ln)
+		if err := e.engine.Listener(ln); err != nil {
+			e.logger.Fatalf("Failed to start the http engine: %v", err)
+		}
 		return
 	}
 
 	e.logger.Logf("Starting the http engine on port %d", port)
 
 	// TODO: add a way to set cert and key for https
-	e.engine.Listen(fmt.Sprintf(":%d", port))
-
+	if err := e.engine.Listen(fmt.Sprintf(":%d", port)); err != nil {
+		e.logger.Fatalf("Failed to start the http engine: %v", err)
+	}
 }
 
 func (e *FiberHttpEngine) Stop() {
