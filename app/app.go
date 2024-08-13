@@ -12,6 +12,7 @@ import (
 	"github.com/jhseong7/gimbap/controller"
 	"github.com/jhseong7/gimbap/dependency"
 	"github.com/jhseong7/gimbap/engine"
+	gin_engine "github.com/jhseong7/gimbap/engine/gin"
 	"github.com/jhseong7/gimbap/microservice"
 	"github.com/jhseong7/gimbap/module"
 	"github.com/jhseong7/gimbap/provider"
@@ -108,7 +109,7 @@ func CreateApp(option AppOption) *GimbapApp {
 	var e engine.IServerEngine
 	if option.ServerEngine == nil {
 		l.Debug("HttpEngine is not set. Using default engine: GinHttpEngine")
-		e = engine.NewGinHttpEngine()
+		e = gin_engine.NewGinHttpEngine()
 	} else {
 		e = option.ServerEngine
 	}

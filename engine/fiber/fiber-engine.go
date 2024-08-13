@@ -1,4 +1,4 @@
-package engine
+package fiber_engine
 
 import (
 	"crypto/tls"
@@ -10,11 +10,12 @@ import (
 
 	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/controller"
+	"github.com/jhseong7/gimbap/engine"
 )
 
 type (
 	FiberHttpEngine struct {
-		IServerEngine
+		engine.IServerEngine
 
 		// The underlying http engine
 		engine          *fiber.App
@@ -24,7 +25,7 @@ type (
 	}
 
 	FiberHttpEngineOption struct {
-		ServerEngineOption
+		engine.ServerEngineOption
 		FiberConfig fiber.Config
 	}
 )
@@ -53,8 +54,8 @@ func (e *FiberHttpEngine) RegisterController(rootPath string, instance controlle
 	routeSpecs := instance.GetRouteSpecs()
 
 	for _, routeSpec := range routeSpecs {
-		checkMethodValidity(routeSpec.Method)
-		fullPath := mergeRestPath(e.globalApiPrefix, rootPath, routeSpec.Path)
+		engine.CheckMethodValidity(routeSpec.Method)
+		fullPath := engine.MergeRestPath(e.globalApiPrefix, rootPath, routeSpec.Path)
 
 		// Register the route
 		// Unlike gin, fiber does not have a method to register a route with a handler function.
@@ -79,7 +80,7 @@ func (e *FiberHttpEngine) RegisterController(rootPath string, instance controlle
 		}
 
 		// Get the name of the Handler function
-		handlerName := runtimeFuncName(routeSpec.Handler)
+		handlerName := engine.RuntimeFuncName(routeSpec.Handler)
 
 		e.logger.Logf("Registered route: %-8s %-20s --> %s", routeSpec.Method, fullPath, handlerName)
 	}
@@ -93,7 +94,7 @@ func (e *FiberHttpEngine) AddMiddleware(middleware ...interface{}) {
 	}
 }
 
-func (e *FiberHttpEngine) Run(option ServerRuntimeOption) {
+func (e *FiberHttpEngine) Run(option engine.ServerRuntimeOption) {
 	port := option.Port
 
 	if port == 0 {
