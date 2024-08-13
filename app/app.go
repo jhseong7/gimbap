@@ -360,6 +360,7 @@ func (app *GimbapApp) AddMicroServices(microservices ...*microservice.MicroServi
 
 // Add a static path to the engine.
 func (app *GimbapApp) AddStatic(path, root string, options ...interface{}) {
+	app.logger.Logf("Adding static path: %s --> %s", path, root)
 	app.serverEngine.AddStatic(path, root, options...)
 }
 
