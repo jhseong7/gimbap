@@ -19,7 +19,7 @@ func (e *NullEngine) RegisterController(rootPath string, instance controller.ICo
 	e.logger.Warn("NullEngine does not support controller registration. Please check if this is intended.")
 }
 
-func (e *NullEngine) Run(port int) {
+func (e *NullEngine) Run(option ServerRuntimeOption) {
 	e.stopFlag = make(chan string)
 
 	// Wait for the stop signal (blocking)
