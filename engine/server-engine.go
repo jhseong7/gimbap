@@ -55,7 +55,7 @@ type (
 )
 
 // Common util functions
-func mergeRestPath(paths ...string) string {
+func MergeRestPath(paths ...string) string {
 	processedPaths := make([]string, 0)
 
 	// Remove trailing and leading slashes
@@ -70,7 +70,7 @@ func mergeRestPath(paths ...string) string {
 	return "/" + strings.Join(processedPaths, "/")
 }
 
-func checkMethodValidity(method string) {
+func CheckMethodValidity(method string) {
 	switch method {
 	case "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD":
 		return
@@ -80,7 +80,7 @@ func checkMethodValidity(method string) {
 }
 
 // Get the name of the function. the split the fi
-func runtimeFuncName(f interface{}) string {
+func RuntimeFuncName(f interface{}) string {
 	name := runtime.FuncForPC(reflect.ValueOf(f).Pointer()).Name()
 	split := strings.Split(name, ".")
 
