@@ -27,6 +27,9 @@ type (
 		server *http.Server
 
 		logger ecl.Logger
+
+		// server stop flag
+		stopFlag chan string
 	}
 
 	GinLogger struct {
@@ -90,6 +93,9 @@ func (e *GinHttpEngine) AddMiddleware(middleware ...interface{}) {
 }
 
 func (e *GinHttpEngine) Run(option engine.ServerRuntimeOption) {
+	// Send the stop flag (if the server stops)
+	defer func() { e.stopFlag <- "stopped" }()
+
 	port := option.Port
 
 	if port == 0 {
@@ -171,9 +177,16 @@ func (e *GinHttpEngine) Stop() {
 	}
 
 	select {
-	case <-ctx.Done():
+	case <-ctx.Done(): // Timeout
 		e.logger.Warn("Server failed to shutdown gracefully with in 5 seconds")
+	case <-e.stopFlag: // Graceful stop
+		e.logger.Log("Server stopped gracefully")
 	}
+}
+
+func (e *GinHttpEngine) AddStatic(prefix, root string, config ...interface{}) {
+	// NOTE: Gin does not support config for static file serving
+	e.engine.Static(prefix, root)
 }
 
 // Internal function to create a new gin engine
@@ -208,5 +221,6 @@ func NewGinHttpEngine(options ...engine.ServerEngineOption) *GinHttpEngine {
 		engine:          e,
 		logger:          l,
 		globalApiPrefix: option.GlobalApiPrefix,
+		stopFlag:        make(chan string),
 	}
 }

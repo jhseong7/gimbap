@@ -30,6 +30,10 @@ type (
 		// Add middleware to the engine.
 		// This will be native to the engine's core
 		AddMiddleware(middleware ...interface{})
+
+		// Add static file serving to the engine.
+		// The config is specific to certain engines if they support it.
+		AddStatic(prefix, root string, config ...interface{})
 	}
 
 	ServerEngineOption struct {

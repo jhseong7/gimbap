@@ -358,6 +358,11 @@ func (app *GimbapApp) AddMicroServices(microservices ...*microservice.MicroServi
 	}
 }
 
+// Add a static path to the engine.
+func (app *GimbapApp) AddStatic(path, root string, options ...interface{}) {
+	app.serverEngine.AddStatic(path, root, options...)
+}
+
 // Stop the app
 //
 // This will stop the app gracefully.

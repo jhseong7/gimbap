@@ -28,6 +28,9 @@ type (
 		server *http.Server
 
 		logger ecl.Logger
+
+		// server stop flag
+		stopFlag chan string
 	}
 )
 
@@ -94,6 +97,9 @@ func (e *EchoHttpEngine) AddMiddleware(middleware ...interface{}) {
 }
 
 func (e *EchoHttpEngine) Run(option engine.ServerRuntimeOption) {
+	// Send the stop flag (if the server stops)
+	defer func() { e.stopFlag <- "stopped" }()
+
 	port := option.Port
 
 	if port == 0 {
@@ -163,6 +169,7 @@ func (e *EchoHttpEngine) Run(option engine.ServerRuntimeOption) {
 	if err := e.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		e.logger.Fatalf("Failed to start the http engine: %s", err)
 	}
+
 }
 
 func (e *EchoHttpEngine) Stop() {
@@ -178,7 +185,15 @@ func (e *EchoHttpEngine) Stop() {
 	select {
 	case <-ctx.Done():
 		e.logger.Warn("Server failed to shutdown gracefully with in 5 seconds")
+	case <-e.stopFlag:
+		e.logger.Log("Server stopped gracefully")
 	}
+
+}
+
+func (e *EchoHttpEngine) AddStatic(prefix, root string, config ...interface{}) {
+	// NOTE: Echo does not support config for static file serving
+	e.engine.Static(prefix, root)
 }
 
 // Internal function to create a new echo engine with the logger middleware
@@ -230,5 +245,6 @@ func NewEchoHttpEngine(options ...engine.ServerEngineOption) *EchoHttpEngine {
 		engine:          e,
 		logger:          l,
 		globalApiPrefix: option.GlobalApiPrefix,
+		stopFlag:        make(chan string),
 	}
 }
