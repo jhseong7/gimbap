@@ -100,8 +100,6 @@ func (e *FiberHttpEngine) Run(option ServerRuntimeOption) {
 		port = 8080
 	}
 
-	e.logger.Logf("Starting the http engine on port %d", port)
-
 	// Load the tls config if it is given
 	// Split the case for TLS and non-TLS
 	if option.TLSOption != nil {
@@ -110,8 +108,16 @@ func (e *FiberHttpEngine) Run(option ServerRuntimeOption) {
 		// If the config is given directly, use it, else load the cert/key files
 		var config *tls.Config
 		if option.TLSOption.tlsConfig != nil {
+			// Use the given tls config directly
 			config = option.TLSOption.tlsConfig
 		} else {
+			config = &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			}
+		}
+
+		// Only load the cert/key files if the config does not have a certificate
+		if option.TLSOption.CertFile != "" && option.TLSOption.KeyFile != "" && config.Certificates == nil {
 			var err error
 			cert, err := tls.LoadX509KeyPair(option.TLSOption.CertFile, option.TLSOption.KeyFile)
 			if err != nil {
@@ -124,6 +130,13 @@ func (e *FiberHttpEngine) Run(option ServerRuntimeOption) {
 			}
 		}
 
+		// If the certificates are not loaded, panic
+		if config.Certificates == nil {
+			e.logger.Fatalf(
+				"Failed to load TLS config: At least one of tls.Config.Certificates or 'CertFile and KeyFile' are required",
+			)
+		}
+
 		// Create a listener with the tls config
 		ln, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), config)
 		if err != nil {
@@ -133,6 +146,8 @@ func (e *FiberHttpEngine) Run(option ServerRuntimeOption) {
 		e.engine.Listener(ln)
 		return
 	}
+
+	e.logger.Logf("Starting the http engine on port %d", port)
 
 	// TODO: add a way to set cert and key for https
 	e.engine.Listen(fmt.Sprintf(":%d", port))

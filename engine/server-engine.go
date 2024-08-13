@@ -41,7 +41,9 @@ type (
 		CertFile string
 		KeyFile  string
 
-		// The tls config can be given directly. In this case, the CertFile and KeyFile will be ignored.
+		// The tls config can be given directly.
+		// If the Certificate is given through the config
+		//, In this case, the CertFile and KeyFile will be ignored.
 		tlsConfig *tls.Config
 	}
 
