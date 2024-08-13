@@ -91,6 +91,6 @@ func (f *FxDependencyManager) OnStop() {
 
 func NewFxManager() *FxDependencyManager {
 	return &FxDependencyManager{
-		logger: ecl.NewLogger(ecl.LoggerOption{Name: "FxDependencyManager"}),
+		logger: ecl.NewLogger(ecl.LoggerOption{Name: "FxDepManager"}),
 	}
 }

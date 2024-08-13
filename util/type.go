@@ -31,6 +31,24 @@ func DeriveTypeFromInstantiator(instantiator interface{}) (reflect.Type, bool) {
 	return funcType.Out(0), true
 }
 
+// Retrive the input types of the instantiator function.
+func DeriveInputTypesFromInstantiator(instantiator interface{}) ([]reflect.Type, bool) {
+	funcType := reflect.TypeOf(instantiator)
+
+	if funcType.Kind() != reflect.Func {
+		log.Panicf("Instantiator is not a function: %s", funcType.String())
+		return nil, false
+	}
+
+	inputTypes := make([]reflect.Type, funcType.NumIn())
+
+	for i := 0; i < funcType.NumIn(); i++ {
+		inputTypes[i] = funcType.In(i)
+	}
+
+	return inputTypes, true
+}
+
 // Remove the pointer from the type. (recursive)
 func UnravelPointerType(t reflect.Type, pointerLevel int) (reflect.Type, int) {
 	var elem reflect.Type
