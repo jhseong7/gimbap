@@ -112,9 +112,9 @@ func (e *EchoHttpEngine) Run(option ServerRuntimeOption) {
 
 		// If the config is given directly, use it, else load the cert/key files
 		var config *tls.Config
-		if option.TLSOption.tlsConfig != nil {
+		if option.TLSOption.Config != nil {
 			// Use the given tls config directly
-			config = option.TLSOption.tlsConfig
+			config = option.TLSOption.Config
 		} else {
 			config = &tls.Config{
 				MinVersion: tls.VersionTLS12,

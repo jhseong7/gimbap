@@ -44,7 +44,7 @@ type (
 		// The tls config can be given directly.
 		// If the Certificate is given through the config
 		//, In this case, the CertFile and KeyFile will be ignored.
-		tlsConfig *tls.Config
+		Config *tls.Config
 	}
 
 	ServerRuntimeOption struct {
