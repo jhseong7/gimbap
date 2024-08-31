@@ -17,105 +17,143 @@ Gimbap is a food where vegetables, fish and meat are rolled in a seaweed sheet w
 
 Like this GIMBAP aims to provide a simple solution to build web application in Go, connecting all components together in a simple and easy way.
 
-## Introduction
+## Key Features
 
-This is a Go Web framework inspired by Nest.JS and Spring, introducing similar patterns of the frameworks and adapt it to the Golang style pattern
+GIMBAP currently supports the following key features:
 
-Even major web frameworks like `gin` intializes routing handlers as below
+- Automatic Dependency Injection management
+- API Endpoint management by code
+- Flexible Server engine switching
+- Containerized instance managing
+
+### Automatic Dependency Injection Management
+
+This is an example of adding a new dependency struct B to the constructor of A
+
+> AS-IS
 
 ```golang
-r := gin.Default()
+package example
 
-r.GET("/test", a.Handler1)
-r.POST("/test", a,Handler2)
-```
+import "github.com/jhseong7/gimbap"
 
-which is similar to the classic Node.JS's `express`.
+type A struct {}
 
-```js
-const app = express();
-const a = new A();
+func CreateA() *A {
+  return &A{}
+}
 
-app.get("/test", a.handler1);
-app.post("/test", a.handler2);
-```
+var ProviderA = gimbap.DefineProvider(
+  gimbap.ProviderOption{Name: "A", Instantiator: CreateA},
+)
 
-The huge advantages of frameworks like NestJS and Spring, are its AOP patterns and strict model hierarchy that allows simpler design patterns.
-
-For example, the simple code above to define router handlers would be like below
-
-```ts
-@Controller()
-class TestController {
-  @Get("test")
-  public async handler1() {
-    /* ... */
+var Module = gimbap.DefineModule(
+  gimbap.ModuleOption{
+    Name: "ExampleModule",
+    Providers: []*gimbap.Provider{ProviderA}
   }
+)
+```
 
-  @Post("test")
-  public async handler1() {
-    /* ... */
+> TO-BE
+
+```golang
+package example
+
+import "github.com/jhseong7/gimbap"
+
+type A struct {B *B}
+
+
+func CreateA(B *B) *A {
+  return &A{B: B}
+}
+
+var ProviderA = gimbap.DefineProvider(
+  gimbap.ProviderOption{Name: "A", Instantiator: CreateA},
+)
+
+// ==== Add defs for B START =====
+type B struct {}
+
+func CreateB() *B {
+  return &B{}
+}
+
+var ProviderB = gimbap.DefineProvider(
+  gimbap.ProviderOption{Name: "B", Instantiator: CreateB},
+)
+// ==== Add defs for B END =====
+
+var Module = gimbap.DefineModule(
+  gimbap.ModuleOption{
+    Name: "ExampleModule",
+    Providers: []*gimbap.Provider{ProviderA, ProviderB} // Add the provider for B here
   }
-}
+)
 ```
 
-```java
-@RestController
-class TestController {
-  @GetMapping("/test")
-  public String handler1() {/* ... */}
+Don't worry about changing the intialization process by hand for the new struct. GIMBAP will handle it for you.
 
-  @PostMapping("/test")
-  public String handler2() {/* ... */}
-}
-```
+### API Endpoint management by code
 
-For small applications, the current pattern should work fine, but as projects grow and get bigger, AOPs help to manage the code in a managed way.
+WIP
 
-For example, imagine a group of classes/structs that have a dependency graph as below
+### Flexible Server engine switching
 
-```mermaid
-flowchart TD
-    A --> B
-    A --> C
-    C --> D
-```
-
-in classic Go and Gin, you would have to initialize the dependencies in the main function and pass it to the handler.
+GIMBAP has an modularized server core that can be switched easily by preference
 
 ```golang
+import "github.com/jhseong7/gimbap"
+import "github.com/jhseong7/gimbap/engine/fiber_engine"
+import "github.com/jhseong7/gimbap/engine/echo_engine"
+
 func main() {
-    a := NewA()
-    b := NewB(a)
-    c := NewC(a)
-    d := NewD(c)
+  // Using GIN as http server
+  a := gimbap.CreateApp(gimbap.AppOption{
+    AppName:   "SampleApp",
+		AppModule: SampleModule,
+  })
+
+  // Using fiber
+  a = gimbap.CreateApp(gimbap.AppOption{
+    AppName:   "SampleApp",
+		AppModule: SampleModule,
+    ServerEngine: fiber_engine.NewFiberHttpEngine()
+  })
+
+  // Using Echo
+  a = gimbap.CreateApp(gimbap.AppOption{
+    AppName:   "SampleApp",
+		AppModule: SampleModule,
+    ServerEngine: echo_engine.NewEchoHttpEngine()
+  })
 }
 ```
 
-Then if a new dependency is added like below, you would have to modify the main function and all the handlers that use the dependency.
+You can choose whatever web server you prefer as the core server easily.
 
-```mermaid
-flowchart TD
-    A --> B
-    A --> C
-    C --> D
-    C --> E
-    A --> D
-```
+## Installation
+
+You can either implicitly install by importing the package like this
 
 ```golang
-func main() {
-    a := NewA()
-    b := NewB(a)
-    c := NewC(a)
-    d := NewD(c, a)
-    e := NewE(d)
-}
+import "github.com/jhseong7/gimbap"
 ```
 
-Like this if dependecies grow, the difficulty of managing the dependencies manually will grow as well. Go has many DI libraries like `uber/fx`, `google/wire`, `facebookgo/inject` but they are more focused on DI itself.
+any go commands will automatically install the package.
 
-As a Go newbie, I found it rather unusual to manage dependencies in Go compared to other frameworks I used (like Spring, NestJS) thus I decided to create a framework that will help manage dependencies in a more structured way. Resulting in a new framework with a simple structured way like below.
+Also, you can explicitly install the package yourself
+
+```shell
+go get -u github.com/jhseong7/gimbap
+```
+
+## Getting Started
+
+GIMBAP requires Go version 1.21 or higher.
+
+A very basic example of GIMBAP will be like this:
 
 ```golang
 package example
@@ -124,13 +162,6 @@ import "github.com/jhseong7/gimbap"
 
 var RootModule = gimbap.DefineModule(gimbap.ModuleOption{
 	Name: "RootModule",
-	SubModules: []*gimbap.Module{
-		ProviderA,
-		ProviderB,
-    ProviderC,
-    ProviderD,
-    ProviderE
-	},
 })
 
 func main() {
@@ -143,19 +174,11 @@ func main() {
 }
 ```
 
-GIMBAP will allow to flexibly manage, add remove or delete, dependencies in a structured with similar MVC/AOP like patterns like Spring or NestJS.
-
-Please check the documentation and samples for more information.
-
 ## Documentation
 
+Check for the documentation here.
+
 [Documentation](doc/documentation.md)
-
-## Installation
-
-```shell
-go get github.com/jhseong7/gimbap
-```
 
 ## Sample Code
 
@@ -163,24 +186,10 @@ go get github.com/jhseong7/gimbap
 
 ## Goals
 
-This framework provides the following features:
+This framework provides the following features in the future
 
-- Module based Dependency Injection (DI)
-  - This will use `uber/fx` for runtime DI
-- `Controller` adapter pattern.
-  - Adapters can be replaced but the framework will provide a constant handler spec
-  - GIN + a
-- `Injectable` interface for module based DI
-  - All services, repos that require DI must be specified in the right way
-- ORM adapters
-  - external module. This will be vendor-locked to that specific module.
-  - initial support will start with `gORM` and `prisma-go`
-- Config manager (dotenv, config service)
-- Container based server control
-  - Container isolation like NestJS or Spring
-  - May be a bean-like config management
-- Panic handle middleware support
 - Interceptor, Guard support
+- More to be added...
 
 ## Third-Party Libraries
 
