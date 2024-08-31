@@ -73,7 +73,48 @@ func main() {
 }
 ```
 
-For this example it wasn't a big issue, but as the application grows, the code will be more complex and harder to manage.
+For small applications, the current pattern should work fine, but as projects grow and get bigger, AOPs help to manage the code in a managed way.
+
+For example, imagine a group of classes/structs that have a dependency graph as below
+
+```mermaid
+flowchart TD
+    A --> B
+    A --> C
+    C --> D
+```
+
+in classic Go and Gin, you would have to initialize the dependencies in the main function and pass it to the handler.
+
+```golang
+func main() {
+    a := NewA()
+    b := NewB(a)
+    c := NewC(a)
+    d := NewD(c)
+}
+```
+
+Then if a new dependency is added like below, you would have to modify the main function and all the handlers that use the dependency.
+
+```mermaid
+flowchart TD
+    A --> B
+    A --> C
+    C --> D
+    C --> E
+    A --> D
+```
+
+```golang
+func main() {
+    a := NewA()
+    b := NewB(a)
+    c := NewC(a)
+    d := NewD(c, a)
+    e := NewE(d)
+}
+```
 
 If it was the case for a Spring Boot Application, the code would be like below.
 
