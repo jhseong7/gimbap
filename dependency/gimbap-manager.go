@@ -54,12 +54,12 @@ func NewGimbapDependencyManagerContext(instanceMap map[reflect.Type]reflect.Valu
 	}
 }
 
-func (g *GimbapDependencyManager) createInstanceFromInstantiator(instantiator interface{}, instanceMap map[reflect.Type]reflect.Value) (reflect.Value, bool, error) {
+func (g *GimbapDependencyManager) createInstancesFromInstantiator(instantiator interface{}, instanceMap map[reflect.Type]reflect.Value) (bool, error) {
 	// Get the input types of the instantiator
 	inputTypes, ok := util.DeriveInputTypesFromInstantiator(instantiator)
 	if !ok {
 		g.logger.Error("Failed to derive input types from instantiator. is the instantiator a function?")
-		return reflect.Value{}, false, fmt.Errorf("failed to derive input types from instantiator")
+		return false, fmt.Errorf("failed to derive input types from instantiator")
 	}
 
 	// Get the input values from the instance map
@@ -67,10 +67,17 @@ func (g *GimbapDependencyManager) createInstanceFromInstantiator(instantiator in
 	for i, inputType := range inputTypes {
 		inputValue, ok := instanceMap[inputType]
 		if !ok { // The instance is not yet created --> return later
-			return reflect.Value{}, false, nil
+			return false, nil
 		}
 
 		inputValues[i] = inputValue
+	}
+
+	// Get the return types of the instantiator
+	returnTypes, ok := util.DeriveTypeListFromInstantiator(instantiator)
+	if !ok {
+		g.logger.Error("Failed to derive return types from instantiator. is the instantiator a function?")
+		return false, fmt.Errorf("failed to derive return types from instantiator")
 	}
 
 	// Call the instantiator with the input values
@@ -78,13 +85,16 @@ func (g *GimbapDependencyManager) createInstanceFromInstantiator(instantiator in
 
 	// If the return values are empty --> panic
 	if len(returnValues) == 0 {
-		return reflect.Value{}, false, fmt.Errorf("failed to create instance from instantiator")
+		return false, fmt.Errorf("failed to create instance from instantiator")
 	}
 
-	g.logger.Debugf("Provider instance created: %s", returnValues[0].Type().String())
+	for i, returnType := range returnTypes {
+		g.logger.Debugf("Provider instance created: %s", returnValues[i].Type().String())
+		instanceMap[returnType] = returnValues[i]
+	}
 
 	// Return the first return value
-	return returnValues[0], true, nil
+	return true, nil
 }
 
 // Throw a panic + log any unresolved dependencies
@@ -137,8 +147,8 @@ func (g *GimbapDependencyManager) instantiateProviders(context *GimbapDependency
 		searchQueue = searchQueue[1:]
 		inQueue[node.nodeType] = false
 
-		// Instantiate the provider
-		inst, success, err := g.createInstanceFromInstantiator(node.provider.Instantiator, context.InstanceMap)
+		// Instantiate the provider. This will directly add the instance to the instance map
+		success, err := g.createInstancesFromInstantiator(node.provider.Instantiator, context.InstanceMap)
 		if err != nil {
 			g.logger.Panicf("Failed to instantiate provider: %s. Please check the provider configuration", node.provider.Name)
 		}
@@ -156,9 +166,6 @@ func (g *GimbapDependencyManager) instantiateProviders(context *GimbapDependency
 			inQueue[node.nodeType] = true
 			continue
 		}
-
-		// Add the instance to the instance map
-		context.InstanceMap[node.nodeType] = inst
 
 		// Remove from the dependency graph if the instance is created
 		for _, required := range node.requires {
@@ -196,7 +203,7 @@ func (g *GimbapDependencyManager) instantiateProviders(context *GimbapDependency
 
 func (g *GimbapDependencyManager) addProvider(context *GimbapDependencyManagerContext, p *provider.Provider) {
 	// Get the return type and input types of the instantiator
-	returnType, ok := util.DeriveTypeFromInstantiator(p.Instantiator)
+	returnTypeList, ok := util.DeriveTypeListFromInstantiator(p.Instantiator)
 
 	if !ok {
 		g.logger.Panicf("Failed to derive type from instantiator: %s", p.Name)
@@ -209,25 +216,29 @@ func (g *GimbapDependencyManager) addProvider(context *GimbapDependencyManagerCo
 		g.logger.Panicf("Failed to derive input types from instantiator: %s", p.Name)
 	}
 
-	node := &dependencyNode{
-		nodeType: returnType,
-		requires: inputTypes,
-		provider: p,
-	}
-
-	// For all the input types, add the node to the dependency graph
-	if len(inputTypes) > 0 {
-		for _, inputType := range inputTypes {
-			// Initialize the dependency graph if it does not exist
-			if _, ok := context.DependencyGraph[inputType]; !ok {
-				context.DependencyGraph[inputType] = make(map[reflect.Type]*dependencyNode)
-			}
-
-			context.DependencyGraph[inputType][returnType] = node
+	// For all the return types, create a node
+	for _, returnType := range returnTypeList {
+		node := &dependencyNode{
+			nodeType: returnType,
+			requires: inputTypes,
+			provider: p,
 		}
-	} else {
-		// If there are no input types, then add the node to the start node list
-		context.StartNodeList = append(context.StartNodeList, node)
+
+		// For all the input types, add the node to the dependency graph
+		if len(inputTypes) > 0 {
+			for _, inputType := range inputTypes {
+				// Initialize the dependency graph if it does not exist
+				if _, ok := context.DependencyGraph[inputType]; !ok {
+					context.DependencyGraph[inputType] = make(map[reflect.Type]*dependencyNode)
+				}
+
+				g.logger.Debugf("Adding dependency: %v --> %v", inputType, returnType)
+				context.DependencyGraph[inputType][returnType] = node
+			}
+		} else {
+			// If there are no input types, then add the node to the start node list
+			context.StartNodeList = append(context.StartNodeList, node)
+		}
 	}
 }
 
