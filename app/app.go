@@ -480,8 +480,8 @@ func CreateApp(option AppOption) *GimbapApp {
 	// Dependency manager
 	var d dependency.IDependencyManager
 	if option.DepManager == nil {
-		l.Debug("DependencyManager is not set. Using default manager: FxManager")
-		d = dependency.NewFxManager()
+		l.Debug("DependencyManager is not set. Using default manager: GimbapDependencyManager")
+		d = dependency.NewGimbapDependencyManager()
 	} else {
 		d = option.DepManager
 	}
