@@ -31,6 +31,31 @@ func DeriveTypeFromInstantiator(instantiator interface{}) (reflect.Type, bool) {
 	return funcType.Out(0), true
 }
 
+// Version of DeriveTypeFromInstantiator that returns multiple return types
+// This returns all the return types of the instantiator function.
+func DeriveTypeListFromInstantiator(instantiator interface{}) ([]reflect.Type, bool) {
+	funcType := reflect.TypeOf(instantiator)
+
+	if funcType.Kind() != reflect.Func {
+		log.Panicf("Instantiator is not a function: %s", funcType.String())
+		return nil, false
+	}
+
+	// Check if the return type exists
+	if funcType.NumOut() == 0 {
+		log.Panicf("Instantiator must have at least one return value: %s", funcType.String())
+		return nil, false
+	}
+
+	// Get the return types
+	returnTypes := make([]reflect.Type, funcType.NumOut())
+	for i := 0; i < funcType.NumOut(); i++ {
+		returnTypes[i] = funcType.Out(i)
+	}
+
+	return returnTypes, true
+}
+
 // Retrive the input types of the instantiator function.
 func DeriveInputTypesFromInstantiator(instantiator interface{}) ([]reflect.Type, bool) {
 	funcType := reflect.TypeOf(instantiator)
