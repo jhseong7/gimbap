@@ -3,6 +3,7 @@ package dependency
 import (
 	"context"
 	"reflect"
+	"time"
 
 	"github.com/jhseong7/ecl"
 	"github.com/jhseong7/gimbap/provider"
@@ -19,6 +20,8 @@ type (
 )
 
 func (f *FxDependencyManager) ResolveDependencies(instanceMap map[reflect.Type]reflect.Value, providerList []*provider.Provider) {
+	start := time.Now()
+
 	// List to save all providers.
 	opList := []fx.Option{}
 
@@ -74,6 +77,8 @@ func (f *FxDependencyManager) ResolveDependencies(instanceMap map[reflect.Type]r
 	if err := f.fxApp.Start(startCtx); err != nil {
 		f.logger.Fatalf("Failed to start the fx app: %v", err)
 	}
+
+	f.logger.Debugf("Dependency resolution took %v", time.Since(start))
 }
 
 func (f *FxDependencyManager) OnStart() {
