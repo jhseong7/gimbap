@@ -80,6 +80,18 @@ func (g *GimbapDependencyManager) createInstancesFromInstantiator(instantiator i
 		return false, fmt.Errorf("failed to derive return types from instantiator")
 	}
 
+	// If the return types are all already created --> skip
+	allInstancesCreated := true
+	for _, returnType := range returnTypes {
+		if _, ok := instanceMap[returnType]; !ok {
+			allInstancesCreated = false
+			break
+		}
+	}
+	if allInstancesCreated {
+		return true, nil
+	}
+
 	// Call the instantiator with the input values
 	returnValues := reflect.ValueOf(instantiator).Call(inputValues)
 
