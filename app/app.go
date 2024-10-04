@@ -48,9 +48,10 @@ type (
 		// microservice list
 		microservices []*microservice.MicroServiceProvider
 
-		// flag to hold the shutdown signal until all the components stop
-		shutdownFlag chan string
-		stopFlag     chan bool // Signal to trigger the stop of the app
+		// flag, channels to hold the shutdown signal until all the components stop
+		shutdownFlag     chan string
+		stopFlag         chan bool // Signal to trigger the stop of the app
+		isAlreadyStopped bool      // flag to check if the app is already stopped (used for aborting start)
 	}
 
 	AppOption struct {
@@ -69,9 +70,11 @@ type (
 	}
 )
 
+// Constants for the maximum time to start and stop the microservices and the app. default is 10 seconds for all
 const (
-	MicroServiceMaxStartTime time.Duration = 5 * time.Second
-	MicroServiceMaxStopTime  time.Duration = 5 * time.Second
+	MicroServiceMaxStartTime time.Duration = 10 * time.Second
+	MicroServiceMaxStopTime  time.Duration = 10 * time.Second
+	AppMaxStopTime           time.Duration = 10 * time.Second
 )
 
 /*
@@ -145,7 +148,7 @@ func (app *GimbapApp) startMicroServices() {
 	app.forAllMicroservices(func(micro microservice.IMicroService, p *microservice.MicroServiceProvider) {
 		app.logger.Logf("Starting microservice %s", p.Name)
 
-		// Each micro service has 5 seconds to stop gracefully
+		// Each micro service has 5 seconds to start. If it fails, log a warning.
 		success := util.TimeoutJob(func() {
 			micro.Start()
 		},
@@ -195,6 +198,9 @@ func (app *GimbapApp) run() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
+	/*
+		NOTE: There is an issue where the app will not stop if the stop signal is sent before the engine starts.
+	*/
 	go func() {
 		select {
 		case sig := <-sigs:
@@ -203,34 +209,53 @@ func (app *GimbapApp) run() {
 			app.logger.Log("Received graceful stop request")
 		}
 
-		// Stop the main engine to break the loop
-		app.serverEngine.Stop()
+		// Set the flag to abort the start process if it hasn't started yet.
+		app.isAlreadyStopped = true
 
-		app.onStop()
+		// Set a timeout for the onStop and serverEngine.Stop
+		// If the onStop does not finish within the timeout, the app will forcefully stop.
+		success := util.TimeoutJob(func() {
+			// Stop the main engine to break the loop
+			app.serverEngine.Stop()
+
+			// Call the onStop lifecycle
+			app.onStop()
+		}, AppMaxStopTime)
+
+		if !success {
+			app.logger.Warnf("Failed to stop the app gracefully within time %s. Forcing stop.", AppMaxStopTime.String())
+		}
 
 		// Send the shutdown signal
 		app.shutdownFlag <- "shutdown"
 	}()
 
 	// Run the onStart lifecycle
+	// Run as goroutine to prevent blocking the web server
 	app.onStart()
 
 	// NOTE, TODO: it may be a good idea to clear the arrays in the internal function for memory management.
 	// if any will be added, do it here.
 
-	// Start the engine
-	app.logger.Log("App started")
-
-	app.serverEngine.Run(engine.ServerRuntimeOption{
-		Port:      runtimeOpts.Port,
-		TLSOption: runtimeOpts.TLSOption,
-	}) // Blocking from here
+	// Check if the app is already stopped (signal received before the engine started)
+	// It can happen if the microservices take too long to start.
+	if !app.isAlreadyStopped {
+		// Start the engine
+		app.logger.Log("App starting")
+		app.serverEngine.Run(engine.ServerRuntimeOption{
+			Port:      runtimeOpts.Port,
+			TLSOption: runtimeOpts.TLSOption,
+		}) // Blocking from here
+	} else {
+		app.logger.Log("App has been stopped before it started. Exiting.")
+		return
+	}
 
 	// Defer function that blocks until the stop signal is received.
 	defer func() {
 		// Wait for the stop signal (blocking)
 		<-app.shutdownFlag
-		app.logger.Log("App has gracefully stopped")
+		app.logger.Log("App has been shut down")
 	}()
 }
 
