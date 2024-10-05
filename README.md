@@ -1,21 +1,29 @@
+<div align="center">
+  <img src="doc/gimbap-logo.png" alt="GIMBAP Logo" />
+</div>
+
 # GIMBAP - Go Injection Management for Better Application Programming
 
 ![Go](https://img.shields.io/badge/go-%2300ADD8.svg?style=for-the-badge&logo=go&logoColor=white)
 
-(G)o
-(I)njection
-(M)anagement for
-(B)etter
-(A)pplication
-(P)rogramming
+**G**o
+**I**njection
+**M**anagement for
+**B**etter
+**A**pplication
+**P**rogramming
 
 ## Why GIMBAP?
 
-Gimbap is a Korean-style see-weed roll that is similar to sushi. It is a simple and easy to make dish that is popular in Korea. The name GIMBAP is chosen as the acronym because it's one of my favourite dishes!.
+Gimbap is a Korean-style see-weed roll with various ingredients insid. It is a simple and easy to make dish that is popular in Korea. The name GIMBAP is chosen as the acronym because it's one of my favourite dishes!.
 
 Gimbap is a food where vegetables, fish and meat are rolled in a seaweed sheet with cooked rice. The seaweed sheet connects all the ingredients together and makes it easy to eat.
 
 Like this GIMBAP aims to provide a simple solution to build web application in Go, connecting all components together in a simple and easy way.
+
+## Disclaimer
+
+GIMBAP is still in its **early stage of development**. It is not recommended to use this in production environment yet, and I am still working on to handle some of the key features that are missing or need improvement.
 
 ## Key Features
 
@@ -105,8 +113,8 @@ GIMBAP has an modularized server core that can be switched easily by preference
 
 ```golang
 import "github.com/jhseong7/gimbap"
-import "github.com/jhseong7/gimbap/engine/fiber_engine"
-import "github.com/jhseong7/gimbap/engine/echo_engine"
+import "github.com/jhseong7/gimbap/internal/engine/fiber_engine"
+import "github.com/jhseong7/gimbap/internal/engine/echo_engine"
 
 func main() {
   // Using GIN as http server
@@ -189,6 +197,7 @@ Check for the documentation here.
 This framework provides the following features in the future
 
 - Interceptor, Guard support
+- Template engine support
 - More to be added...
 
 ## Third-Party Libraries
@@ -211,3 +220,7 @@ This project uses the following third-party libraries:
   - **Purpose:** Used the internal server engine `EchoHttpEngine`
   - **License:** MIT License. [Link](https://github.com/labstack/echo/blob/master/LICENSE)
   - **Link:** [https://github.com/labstack/echo](https://github.com/labstack/echo)
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
