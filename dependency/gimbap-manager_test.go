@@ -99,7 +99,6 @@ var MultiGProvider = gimbap.DefineProvider(gimbap.ProviderOption{Name: "MultiG",
 var MultiHProvider = gimbap.DefineProvider(gimbap.ProviderOption{Name: "MultiH", Instantiator: NewMultiH})
 
 var _ = Describe("GimbapDependencyManager", func() {
-	gimbapManager := manager.NewGimbapDependencyManager()
 
 	Context("Test resolver", func() {
 		fmt.Println("addProvider")
@@ -115,7 +114,7 @@ var _ = Describe("GimbapDependencyManager", func() {
 				EProvider,
 				FProvider,
 			}
-
+			gimbapManager := manager.NewGimbapDependencyManager()
 			gimbapManager.ResolveDependencies(instanceMap, providerList)
 		})
 
@@ -129,6 +128,7 @@ var _ = Describe("GimbapDependencyManager", func() {
 			}
 
 			Expect(func() {
+				gimbapManager := manager.NewGimbapDependencyManager()
 				gimbapManager.ResolveDependencies(instanceMap, providerList)
 			}).To(Panic())
 		})
@@ -147,6 +147,7 @@ var _ = Describe("GimbapDependencyManager", func() {
 			}
 
 			Expect(func() {
+				gimbapManager := manager.NewGimbapDependencyManager()
 				gimbapManager.ResolveDependencies(instanceMap, providerList)
 			}).To(Panic())
 		})
@@ -162,9 +163,48 @@ var _ = Describe("GimbapDependencyManager", func() {
 				MultiHProvider,
 			}
 
+			gimbapManager := manager.NewGimbapDependencyManager()
 			gimbapManager.ResolveDependencies(instanceMap, providerList)
 
 			Expect(instanceMap[reflect.TypeOf(&MultiA{})]).ToNot(BeNil())
+		})
+
+		It("Duplicate provider for 1 type provided (start node) --> will panic", func() {
+			instanceMap := make(map[reflect.Type]reflect.Value)
+
+			providerList := []*provider.Provider{
+				AProvider,
+				AProvider, // A is provided twice
+				BProvider,
+				CProvider,
+				DProvider,
+				EProvider,
+				FProvider,
+			}
+
+			Expect(func() {
+				gimbapManager := manager.NewGimbapDependencyManager()
+				gimbapManager.ResolveDependencies(instanceMap, providerList)
+			}).To(Panic())
+		})
+
+		It("Duplicate provider for 1 type provided (node) --> will panic", func() {
+			instanceMap := make(map[reflect.Type]reflect.Value)
+
+			providerList := []*provider.Provider{
+				AProvider,
+				BProvider,
+				BProvider, // B is provided twice
+				CProvider,
+				DProvider,
+				EProvider,
+				FProvider,
+			}
+
+			Expect(func() {
+				gimbapManager := manager.NewGimbapDependencyManager()
+				gimbapManager.ResolveDependencies(instanceMap, providerList)
+			}).To(Panic())
 		})
 	})
 })
