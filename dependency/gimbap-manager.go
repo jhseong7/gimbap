@@ -32,7 +32,7 @@ type (
 			The starting node list to resolve the dependencies
 			These are nodes that do not require any other nodes to initialize
 		*/
-		StartNodeList []*dependencyNode
+		StartNodeMap map[reflect.Type]*dependencyNode
 
 		// Reference to the instance map
 		InstanceMap map[reflect.Type]reflect.Value
@@ -51,6 +51,7 @@ func NewGimbapDependencyManagerContext(instanceMap map[reflect.Type]reflect.Valu
 	return &GimbapDependencyManagerContext{
 		DependencyGraph: make(map[reflect.Type]map[reflect.Type]*dependencyNode),
 		InstanceMap:     instanceMap,
+		StartNodeMap:    make(map[reflect.Type]*dependencyNode),
 	}
 }
 
@@ -149,7 +150,10 @@ func (g *GimbapDependencyManager) throwDependencyResolveError(context *GimbapDep
 
 // Instantiate the providers using the node data
 func (g *GimbapDependencyManager) instantiateProviders(context *GimbapDependencyManagerContext) {
-	searchQueue := append([]*dependencyNode{}, context.StartNodeList...)
+	searchQueue := make([]*dependencyNode, 0)
+	for _, node := range context.StartNodeMap {
+		searchQueue = append(searchQueue, node)
+	}
 	inQueue := make(map[reflect.Type]bool)
 
 	// While the search queue is not empty
@@ -244,12 +248,21 @@ func (g *GimbapDependencyManager) addProvider(context *GimbapDependencyManagerCo
 					context.DependencyGraph[inputType] = make(map[reflect.Type]*dependencyNode)
 				}
 
+				// If the dependency graph already contains the node --> panic (no duplicate providers for the same type is allowed)
+				if _, ok := context.DependencyGraph[inputType][returnType]; ok {
+					g.logger.Panicf("Duplicate provider detected: %v --> %v. Please only provide 1 provider for each type", inputTypes, returnType)
+				}
+
 				g.logger.Debugf("Adding dependency: %v --> %v", inputType, returnType)
 				context.DependencyGraph[inputType][returnType] = node
 			}
 		} else {
+			if _, ok := context.StartNodeMap[returnType]; ok {
+				g.logger.Panicf("Duplicate provider detected: %v. Please only provide 1 provider for each type", returnType)
+			}
+
 			// If there are no input types, then add the node to the start node list
-			context.StartNodeList = append(context.StartNodeList, node)
+			context.StartNodeMap[returnType] = node
 		}
 	}
 }
@@ -266,7 +279,7 @@ func (g *GimbapDependencyManager) ResolveDependencies(instanceMap map[reflect.Ty
 	}
 
 	// If the starting node list is empty --> panic
-	if len(context.StartNodeList) == 0 {
+	if len(context.StartNodeMap) == 0 {
 		g.logger.Panicf("Failed to resolve the dependencies. There is no starting node. At least one provider must not require any other provider")
 	}
 
