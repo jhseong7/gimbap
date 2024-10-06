@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="/gimbap-logo.png" alt="GIMBAP Logo" />
+  <img src="docs/public/gimbap-logo.png" alt="GIMBAP Logo" />
 </div>
 
 # GIMBAP - Go Injection Management for Better Application Programming
@@ -141,56 +141,16 @@ func main() {
 
 You can choose whatever web server you prefer as the core server easily.
 
-## Installation
-
-You can either implicitly install by importing the package like this
-
-```go
-import "github.com/jhseong7/gimbap"
-```
-
-any go commands will automatically install the package.
-
-Also, you can explicitly install the package yourself
-
-```shell
-go get -u github.com/jhseong7/gimbap
-```
-
-## Getting Started
-
-GIMBAP requires Go version 1.21 or higher.
-
-A very basic example of GIMBAP will be like this:
-
-```go
-package example
-
-import "github.com/jhseong7/gimbap"
-
-var RootModule = gimbap.DefineModule(gimbap.ModuleOption{
-	Name: "RootModule",
-})
-
-func main() {
-  app := gimbap.CreateApp(gimbap.AppOption{
-    Name: "ExampleApp",
-    AppModule: RootModule,
-  })
-
-  app.Run()
-}
-```
-
 ## Documentation
 
 Check for the documentation here.
 
-[Documentation](doc/documentation.md)
+[Documentation](https://go-gimbap.com)
 
-## Sample Code
+## Related Projects
 
 [Sample Repo](https://github.com/jhseong7/gimbap-sample)
+[Config Provider](https://github.com/jhseong7/gimbap-config)
 
 ## Goals
 
