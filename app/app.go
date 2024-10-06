@@ -312,12 +312,12 @@ func (app *GimbapApp) SetCustomLogger(logger ecl.Logger) {
 	app.logger = logger
 }
 
-// UseInjection is a function to add functions that will be called with the injection support.
+// Provide is a function to add functions that will be called with the injection support.
 //
 // This is useful for initializing functions that need to use providers.
 // A function that provides the value can be given, or the value itself can be given.
 // If a function is given, that function can also benefit from the injection support.
-func (app *GimbapApp) UseInjection(injectionValue interface{}) {
+func (app *GimbapApp) Provide(injectionValue interface{}) {
 	// Initialize the functions list if it is nil.
 	if app.functionsWithInjection == nil {
 		app.functionsWithInjection = []*provider.Provider{}
