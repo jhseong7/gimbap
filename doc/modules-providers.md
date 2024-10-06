@@ -1,3 +1,5 @@
+[Return to Documentation](./documentation.md)
+
 # Module and Provider Pattern
 
 The goal is to provide a simple way to manage dependencies in a structured way, like in Spring and NestJS.
@@ -58,7 +60,7 @@ For example, if A depends on B and B depends on A, the DI will fail to inject th
 
 The provider for GIMBAP must provide some key information to the DI framework.
 
-- A contructor function that takes in dependencies as parameters, returning the provider itself.
+- A constructor function that takes in dependencies as parameters, returning the provider itself.
 
 Since the framework determines the DI relationship upon the provider's constructor, the provider must crutially define:
 
@@ -190,7 +192,20 @@ func (c *FoodControllerGin) PostFood(ctx *gin.Context) {
 }
 ```
 
-Just by adding an extra entry to the array of `RouteSpec` the routing handlers will be automatically added to the router. The handler does not have to be a gin handler, it can be any type of handler that can be converted to a gin handler. Check this feature in `Http Engine` section of the docs.
+Just by manupulating the entry of the array of `RouteSpec` the routing handlers will be automatically be applied to the router.
+
+For example, to disable the route "GET /" just remove the entry from the array.
+
+```golang
+func (c *FoodControllerGin) GetRouteSpecs() []gimbap.RouteSpec {
+  return []gimbap.RouteSpec{
+    // {Method: "GET", Path: "/", Handler: c.GetFood},
+    {Method: "POST", Path: "/", Handler: c.PostFood},
+  }
+}
+```
+
+The handler does not have to be a gin handler, it can be any type of handler that can be converted to a gin handler. Check this feature in the [Server Engine](./main-concept.md#server-engine) section of the docs.
 
 ## Module Pattern and Folder structure
 

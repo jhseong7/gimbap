@@ -1,0 +1,5 @@
+node_modules/
+.next/
+public/*.xml
+public/robots.txt
+node_modules/
