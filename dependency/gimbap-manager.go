@@ -175,7 +175,7 @@ func (g *GimbapDependencyManager) instantiateProviders(context *GimbapDependency
 			node.requeueCount++
 			// If the requeue count exceeds the number of dependencies --> circular dependency
 			if node.requeueCount > len(node.requires) {
-				g.throwDependencyResolveError(context, "Circular dependency detected")
+				g.throwDependencyResolveError(context, "Possible circular dependency detected")
 			}
 
 			searchQueue = append(searchQueue, node)

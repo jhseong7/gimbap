@@ -2,3 +2,5 @@
 vendor/
 sample/
 cmd/
+
+node_modules/

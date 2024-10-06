@@ -38,7 +38,7 @@ GIMBAP currently supports the following key features:
 
 This is an example of adding a new dependency struct B to the constructor of A
 
-> AS-IS
+> Only A
 
 ```go
 package example
@@ -63,7 +63,7 @@ var Module = gimbap.DefineModule(
 )
 ```
 
-> TO-BE
+> When Dependency B is added
 
 ```go
 package example
@@ -105,11 +105,34 @@ Don't worry about changing the intialization process by hand for the new struct.
 
 ### API Endpoint management by code
 
-WIP
+When adding or removing new API endpoints, there is no need to manually add code to the main function's initialization process.
+Just manipulate the controller spec.
+
+> Example of a controller spec
+
+```go
+func (c *FoodControllerGin) GetRouteSpecs() []gimbap.RouteSpec {
+	return []gimbap.RouteSpec{
+		{Method: "GET", Path: "/", Handler: c.GetFood},
+		{Method: "POST", Path: "/", Handler: c.PostFood},
+	}
+}
+```
+
+> Removing `POST /` endpoint
+
+```go
+func (c *FoodControllerGin) GetRouteSpecs() []gimbap.RouteSpec {
+  return []gimbap.RouteSpec{
+    {Method: "GET", Path: "/", Handler: c.GetFood},
+    //{Method: "POST", Path: "/", Handler: c.PostFood},
+  }
+}
+```
 
 ### Flexible Server engine switching
 
-GIMBAP has an modularized server core that can be switched easily by preference
+GIMBAP has an modularized server core that can be switched easily by preference. Use the engine that suites your needs.
 
 ```go
 import "github.com/jhseong7/gimbap"
