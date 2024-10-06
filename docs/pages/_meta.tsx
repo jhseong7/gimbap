@@ -3,5 +3,6 @@ export default {
   whygimbap: "Why GIMBAP?",
   howitstarted: "How It Started",
   gettingstarted: "Getting Started",
-  features: "Features",
+  mainconcepts: "Main Concept and Architecture",
+  walkthrough: "Walkthrough (WIP)",
 };

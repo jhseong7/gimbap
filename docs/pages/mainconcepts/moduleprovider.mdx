@@ -1,6 +1,8 @@
-# Module and Provider Pattern
+# Modules and Providers
 
-The goal is to provide a simple way to manage dependencies in a structured way, like in Spring and NestJS.
+## Introduction
+
+One of the main goals of GIMBAP is to provide a simple way to manage dependencies in a structured way, like in Spring and NestJS.
 
 The main features are:
 
@@ -54,7 +56,7 @@ Since Go's structs have unique identifiers, the providers in the modules can req
 
 For example, if A depends on B and B depends on A, the DI will fail to inject the dependencies as it will cause a chicken and egg problem.
 
-## Provider Pattern
+## Provider
 
 The provider for GIMBAP must provide some key information to the DI framework.
 
@@ -67,7 +69,7 @@ Since the framework determines the DI relationship upon the provider's construct
 
 Below is an example of the provider pattern
 
-```golang
+```go
 package example
 
 import "github.com/jhseong7/gimbap"
@@ -96,7 +98,7 @@ var SaltProvider = gimbap.DefineProvider(gimbap.ProviderOption{
 
 This provider will provide `*SaltService` to other providers that require it.
 
-```golang
+```go
 package example
 
 import (
@@ -133,7 +135,7 @@ For example, imagine a new service called `ChefService` that is required by both
 
 Then the Construtor for `SaltService` and `FoodService` can be modified as below:
 
-```golang
+```go
 func NewFood(chef *ChefService, salt *SaltService) *FoodService {
 	return &FoodService{
 		Name:   "Food",
@@ -150,68 +152,13 @@ func NewSalt(chef *ChefService) *SaltService {
 }
 ```
 
-## Controller Pattern
-
-Controllers are special type of providers that are used to define routing handlers.
-
-Controllers must implement the interface `IController` which has the following methods:
-
-```golang
-type (
-	IController interface {
-		// The key method to get the route specs.
-		GetRouteSpecs() []RouteSpec
-	}
-
-  RouteSpec struct {
-		Path    string // Route path to the handler. The full path will be RootPath + Path.
-		Method  string // HTTP method (GET, POST, PUT, DELETE, etc.)
-		Handler interface{}
-	}
-)
-```
-
-The new `GetRouteSpecs()` method will return a list of `RouteSpec` that will be used to define the routing handlers.
-
-```golang
-func (c *FoodControllerGin) GetRouteSpecs() []gimbap.RouteSpec {
-	return []gimbap.RouteSpec{
-		{Method: "GET", Path: "/", Handler: c.GetFood},
-		{Method: "POST", Path: "/", Handler: c.PostFood},
-	}
-}
-
-func (c *FoodControllerGin) GetFood(ctx *gin.Context) {
-	ctx.String(200, "Food: %s, Salt: %s and combined is %s", c.Food.Name, c.Food.Salt.Name, c.Food.GetName())
-}
-
-func (c *FoodControllerGin) PostFood(ctx *gin.Context) {
-	ctx.String(200, "Post Food "+c.Food.GetName())
-}
-```
-
-Just by manupulating the entry of the array of `RouteSpec` the routing handlers will be automatically be applied to the router.
-
-For example, to disable the route "GET /" just remove the entry from the array.
-
-```golang
-func (c *FoodControllerGin) GetRouteSpecs() []gimbap.RouteSpec {
-  return []gimbap.RouteSpec{
-    // {Method: "GET", Path: "/", Handler: c.GetFood},
-    {Method: "POST", Path: "/", Handler: c.PostFood},
-  }
-}
-```
-
-The handler does not have to be a gin handler, it can be any type of handler that can be converted to a gin handler. Check this feature in the [Server Engine](./main-concept.md#server-engine) section of the docs.
-
-## Module Pattern and Folder structure
+## Modules
 
 If all the providers and controllers have been defined, the next step is to define the modules.
 
 Modules can be defined as below:
 
-```golang
+```go
 package example
 
 import "github.com/jhseong7/gimbap"
@@ -232,7 +179,7 @@ A module initialized with the `DefineModule` function will be used to collect al
 
 Modules can also be combined to create a bigger module that can be used to start the DI process.
 
-```golang
+```go
 var BiggerModule = gimbap.DefineModule(gimbap.ModuleOption{
   Name: "BiggerModule",
   SubModules: []*gimbap.Module{
@@ -244,7 +191,7 @@ var BiggerModule = gimbap.DefineModule(gimbap.ModuleOption{
 
 Then use the Module to start the GIMBAP App
 
-```golang
+```go
 import "github.com/jhseong7/gimbap"
 
 func main() {
@@ -261,7 +208,7 @@ Since the GIMBAP app only accepts a single Root module, it is recommended to use
 
 If you intend to use a multi-module initialization, define the module directly in the `CreateApp` function.
 
-```golang
+```go
 import "github.com/jhseong7/gimbap"
 
 func main() {
