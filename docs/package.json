@@ -3,6 +3,7 @@
     "clean": "rm -rf .next",
     "predev": "yarn clean",
     "dev": "next dev",
+    "prebuild": "yarn clean",
     "build": "next build",
     "start": "next start"
   },
