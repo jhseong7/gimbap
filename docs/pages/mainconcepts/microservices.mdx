@@ -1,0 +1,36 @@
+# Microservices
+
+## Introduction
+
+Microservices are special logics that are automatically started and stopped by the app's lifecycle. These are designed to be used for other types of servers other than the http server.
+
+Examples of microservices are:
+
+- gRPC servers
+- Websocket servers
+- TCP servers
+
+The key difference between a microservice and a microservice is that a microservice are treated like dependency providers, thus are injected with dependencies if there are any.
+
+Microservices must implement the interface `IMicroServices` which is defined as follows.
+
+```go
+type IMicroService interface {
+  // Start the microservice
+  Start()
+
+  // Gracefully stop the microservice
+  Stop()
+}
+```
+
+The only thing GIMBAP manages for the microservices are:
+
+- Lifecycle methods
+- Dependency injections
+
+So anything that needs to reside with the main server engine can be implemented as a MicroService.
+
+The microservices must stop within 5 seconds when the Start(), Or Stop() is called. This is to prevent any blocking events on app closing.
+
+The start and stop of the microservices are handled in order of the which it was added to the app via `app.AddMicroServices`

@@ -1,0 +1,112 @@
+# Dependency Manager
+
+## Introduction
+
+GIMBAP uses DI(Dependency Injection) to manage the components of the application. The dependency injection is managed by a component named that implements the interface `IDependencyManager`.
+
+The manager takes a set of providers and returns a map of instances with the dependencies resolved.
+
+GIMBAP manages the graphs of dependencies given through the `Module` struct, automatically injects the dependency provides and initialized at least one instance of the given providers.
+
+For example, if the app is given a module with a provider with a struct of `Service1` and `Service2`, where suppose `Service2` depends on `Service1`, GIMBAP will automatically create singleton instances of `Service1` and `Service2` and use the instance of `Service1` when initializing `Service2`.
+
+This does not only apply to Service level providers. Any Go struct that is unique can be used as a provider where all components that require that as a parameter of the constructor will be automatically injected by the app.
+
+The DI system in GIMBAP follows the following principles:
+
+1. All components are singletons
+   - A single type of provider will only have one instance in the app
+2. All components are initialized at the start of the app
+   - All components are initialized at the start of the app, and the app will not start if there are any errors in the initialization process
+
+## Limitations
+
+Since DI works by identifying the given struct's type and building the dependency graph upon it, there are some limitations to the DI system.
+
+1. All dependency provider's type must be unique
+   - 2 or more providers of the exact same type will cause a panic in the DI system
+   - For the same reason, interfaces and array type structs are not supported as providers
+2. Circular dependencies are not supported
+   - Circular dependencies will cause a panic in the DI system
+   - e.g. `A -> B -> C -> A` is not allowed
+
+## Manager Selection
+
+GIMBAP provides 2 types of dependency managers as of now:
+
+1. GIMBAP Dependency Manager (default)
+   - The default dependency manager that comes with GIMBAP
+   - The manager is a simple implementation of the `IDependencyManager` interface
+   - **Pros**: Simple, lightweight
+   - **Cons**: Still in alpha, may have some bugs
+2. Fx Dependency Manager
+   - This is an implementation using `go.uber.org/fx` package
+   - **Pros**: Stable, well-tested
+   - **Cons**: Only supports providers with single return values
+
+To select the manager, the app must provide the manager to the `App` struct. You can either designate nothing to use the default manager or provide the manager explicitly.
+
+```go
+import (
+  "github.com/jhseong7/gimbap"
+  "github.com/jhseong7/gimbap/dependency"
+)
+func main() {
+  // Default manager
+  app := gimbap.NewApp(
+    gimbap.AppOption{
+      AppModule: module,
+    },
+  )
+
+  // Fx manager
+  app = gimbap.NewApp(
+    gimbap.AppOption{
+      AppModule: module,
+      DependencyManager: dependency.NewFxManager(),
+    },
+  )
+}
+```
+
+## Custom Dependency Manager
+
+If you want to implement your own dependency manager, you can do so by implementing the `IDependencyManager` interface.
+
+The manager must implement the following methods:
+
+```go
+type (
+	IDependencyManager interface {
+		// ResolveDependencies the dependencies to the target
+		//
+		// The first parameter is the result map which contains the resolved dependencies.
+		// The second parameter is the list of providers to resolve.
+		ResolveDependencies(instanceMap map[reflect.Type]reflect.Value, providers []*provider.Provider)
+
+		// Lifecycle methods
+		OnStart()
+		OnStop()
+	}
+)
+```
+
+`ResolveDependencies` takes in a list of providers and populates the given map with the resolved dependencies.
+
+Once the custom manager is implemented, you can provide the manager to the `App` struct like below.
+
+```go
+import (
+  "github.com/jhseong7/gimbap"
+  m "github.com/jhseong7/some-custom-manager"
+)
+
+func main() {
+  app := gimbap.NewApp(
+    gimbap.AppOption{
+      AppModule: module,
+      DependencyManager: &m.NewCustomManager(),
+    },
+  )
+}
+```

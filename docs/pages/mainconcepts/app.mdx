@@ -1,0 +1,39 @@
+# App Container
+
+## Introduction
+
+A GIMBAP app is a closed container that contains all the necessary components to run a web application.
+The instance of the app is isolated from another app instance and the components are not shared between the apps.
+
+```go
+package main
+
+import (
+  "github.com/jhseong7/gimbap"
+)
+
+func main() {
+  // App container 1
+  app := gimbap.NewApp(
+    gimbap.AppOption{
+      AppModule: module,
+    },
+  )
+
+  // App container 2
+  app2:= gimbap.NewApp(
+    gimbap.AppOption{
+      AppModule: module2,
+    },
+  )
+
+  // The 2 apps don't share the components inside
+  serviceA1 := gimbap.GetProvider(app, *ServiceA)
+  serviceA2 := gimbap.GetProvider(app2, *ServiceA)
+
+  // The 2 services will be different
+  fmt.Println(serviceA1 == serviceA2) // false
+
+  // ....
+}
+```

@@ -1,0 +1,101 @@
+# Controller
+
+## Introduction
+
+Controllers are special type of providers that are used to define routing handlers.
+The special interface `GetRouteSpecs()` is used to define the routing handlers automatically.
+
+## Handlers
+
+Handlers are functions in the struct that are used to handle the requests from the clients.
+
+Unlike pure Go applications the Controllers in GIMBAP must be a method of a struct that implements the `IController` interface.
+
+The prototype of the handler function depends on the server engine that is used. The type of the handler is identical to the handlers of the core of the server engine.
+
+For example, if the server engine is GIN, the handler must be a GIN handler.
+
+```go
+func (c *Controller) Handler(c *gin.Context) {
+  c.JSON(200, gin.H{
+    "message": "Hello World",
+  })
+}
+```
+
+If the server is fiber, then the handlers would look like this
+
+```go
+func (c *Controller) Handler(c *fiber.Ctx) error {
+  return c.JSON(fiber.Map{
+    "message": "Hello World",
+  })
+}
+```
+
+If the server is echo, then the handlers would look like this
+
+```go
+func (c *Controller) Handler(c echo.Context) error {
+  return c.JSON(200, map[string]interface{}{
+    "message": "Hello World",
+  })
+}
+```
+
+Since the current version of GIMBAP doesn't support the handler compatibility between the engines, it takes precautions to use the correct handler for the engine.
+GIMBAP app will not start if the handlers are not compatible with the engine.
+
+## RouteSpec
+
+RouteSpecs are the data that defines the routing information of the handlers in the controller.
+
+Controllers **MUST** implement the interface `IController` which has the following methods:
+
+```golang
+type (
+	IController interface {
+		// The key method to get the route specs.
+		GetRouteSpecs() []RouteSpec
+	}
+
+  RouteSpec struct {
+		Path    string // Route path to the handler. The full path will be RootPath + Path.
+		Method  string // HTTP method (GET, POST, PUT, DELETE, etc.)
+		Handler interface{}
+	}
+)
+```
+
+The new `GetRouteSpecs()` method will return a list of `RouteSpec` that will be used to define the routing handlers. Each entry of RouteSpec will define the path, method and the handler function.
+GIMBAP App will automatically apply the routing handlers to the server engine.
+
+```golang
+func (c *FoodControllerGin) GetRouteSpecs() []gimbap.RouteSpec {
+	return []gimbap.RouteSpec{
+		{Method: "GET", Path: "/", Handler: c.GetFood},
+		{Method: "POST", Path: "/", Handler: c.PostFood},
+	}
+}
+
+func (c *FoodControllerGin) GetFood(ctx *gin.Context) {
+	ctx.String(200, "Food: %s, Salt: %s and combined is %s", c.Food.Name, c.Food.Salt.Name, c.Food.GetName())
+}
+
+func (c *FoodControllerGin) PostFood(ctx *gin.Context) {
+	ctx.String(200, "Post Food "+c.Food.GetName())
+}
+```
+
+Just by manupulating the entry of the array of `RouteSpec` the routing handlers will be automatically be applied to the router.
+
+For example, to disable the route "GET /" just remove the entry from the array.
+
+```golang
+func (c *FoodControllerGin) GetRouteSpecs() []gimbap.RouteSpec {
+  return []gimbap.RouteSpec{
+    // {Method: "GET", Path: "/", Handler: c.GetFood},
+    {Method: "POST", Path: "/", Handler: c.PostFood},
+  }
+}
+```
