@@ -39,106 +39,130 @@ However any folder structure you prefer is fine as long as you can manage the co
 
 > main.go in the root folder
 
-```shell
-GIMBAP-project/
-├── user/
-│   ├── module.go
-│   ├── user-service.go
-│   ├── user-controller.go
-│   └── user-repository.go
-├── post/
-│   ├── module.go
-│   ├── post-service.go
-│   ├── post-controller.go
-│   └── post-repository.go
-├── comment/
-│   ├── module.go
-│   ├── comment-service.go
-│   ├── comment-controller.go
-│   └── comment-repository.go
-├── go.mod
-├── go.sum
-├── app-module.go
-└── main.go
-```
+import { FileTree } from "nextra/components";
+
+<FileTree>
+  <FileTree.Folder name="GIMBAP-project" defaultOpen>
+    <FileTree.Folder name="user" defaultOpen>
+      <FileTree.File name="module.go" />
+      <FileTree.File name="user-service.go" />
+      <FileTree.File name="user-controller.go" />
+      <FileTree.File name="user-repository.go" />
+    </FileTree.Folder>
+    <FileTree.Folder name="post" defaultOpen>
+      <FileTree.File name="module.go" />
+      <FileTree.File name="post-service.go" />
+      <FileTree.File name="post-controller.go" />
+      <FileTree.File name="post-repository.go" />
+    </FileTree.Folder>
+    <FileTree.Folder name="comment" defaultOpen>
+      <FileTree.File name="module.go" />
+      <FileTree.File name="comment-service.go" />
+      <FileTree.File name="comment-controller.go" />
+      <FileTree.File name="comment-repository.go" />
+    </FileTree.Folder>
+    <FileTree.File name="go.mod" />
+    <FileTree.File name="go.sum" />
+    <FileTree.File name="app-module.go" />
+    <FileTree.File name="main.go" />
+  </FileTree.Folder>
+</FileTree>
 
 > main.go in the cmd folder. The modules can stay in the root or moved to internal/ folder depending on the preference.
 
-```shell
-GIMBAP-project/
-├── cmd/
-│   └── app/
-│       └── main.go
-├── app/
-│   ├── app-module.go
-│   ├── user/
-│   │   ├── module.go
-│   │   ├── user-service.go
-│   │   ├── user-controller.go
-│   │   └── user-repository.go
-│   ├── post/
-│   │   ├── module.go
-│   │   ├── post-service.go
-│   │   ├── post-controller.go
-│   │   └── post-repository.go
-│   └── comment/
-│       ├── module.go
-│       ├── comment-service.go
-│       ├── comment-controller.go
-│       └── comment-repository.go
-├── go.mod
-└── go.sum
-```
+<FileTree>
+  <FileTree.Folder name="GIMBAP-project" defaultOpen>
+    <FileTree.Folder name="cmd" defaultOpen>
+      <FileTree.Folder name="app" defaultOpen>
+        <FileTree.File name="main.go" />
+      </FileTree.Folder>
+    </FileTree.Folder>
+    <FileTree.Folder name="app" defaultOpen>
+      <FileTree.File name="app-module.go" />
+      <FileTree.Folder name="user" defaultOpen>
+        <FileTree.File name="module.go" />
+        <FileTree.File name="user-service.go" />
+        <FileTree.File name="user-controller.go" />
+        <FileTree.File name="user-repository.go" />
+      </FileTree.Folder>
+      <FileTree.Folder name="post" defaultOpen>
+        <FileTree.File name="module.go" />
+        <FileTree.File name="post-service.go" />
+        <FileTree.File name="post-controller.go" />
+        <FileTree.File name="post-repository.go" />
+      </FileTree.Folder>
+      <FileTree.Folder name="comment" defaultOpen>
+        <FileTree.File name="module.go" />
+        <FileTree.File name="comment-service.go" />
+        <FileTree.File name="comment-controller.go" />
+        <FileTree.File name="comment-repository.go" />
+      </FileTree.Folder>
+    </FileTree.Folder>
+    <FileTree.File name="go.mod" />
+    <FileTree.File name="go.sum" />
+  </FileTree.Folder>
+</FileTree>
 
 #### By Types
 
-```shell
-GIMBAP-project/
-├── controller/
-│   ├── module.go
-│   ├── user-controller.go
-│   ├── post-controller.go
-│   └── comment-controller.go
-├── service/
-│   ├── module.go
-│   ├── user-service.go
-│   ├── post-service.go
-│   └── comment-service.go
-├── repository/
-│   ├── module.go
-│   ├── user-repository.go
-│   ├── post-repository.go
-│  └── comment-repository.go
-├── go.mod
-├── go.sum
-├── app-module.go
-└── main.go
-```
+<FileTree>
+  <FileTree.Folder name="GIMBAP-project" defaultOpen>
+    <FileTree.Folder name="controller" defaultOpen>
+      <FileTree.File name="module.go" />
+      <FileTree.File name="user-controller.go" />
+      <FileTree.File name="post-controller.go" />
+      <FileTree.File name="comment-controller.go" />
+    </FileTree.Folder>
+    <FileTree.Folder name="service" defaultOpen>
+      <FileTree.File name="module.go" />
+      <FileTree.File name="user-service.go" />
+      <FileTree.File name="post-service.go" />
+      <FileTree.File name="comment-service.go" />
+    </FileTree.Folder>
+    <FileTree.Folder name="repository" defaultOpen>
+      <FileTree.File name="module.go" />
+      <FileTree.File name="user-repository.go" />
+      <FileTree.File name="post-repository.go" />
+      <FileTree.File name="comment-repository.go" />
+    </FileTree.Folder>
+    <FileTree.File name="go.mod" />
+    <FileTree.File name="go.sum" />
+    <FileTree.File name="app-module.go" />
+    <FileTree.File name="main.go" />
+  </FileTree.Folder>
+</FileTree>
 
 > main.go in the cmd folder. The modules can stay in the root or moved to internal/ folder depending on the preference.
 
-```shell
-GIMBAP-project/
-├── cmd/
-│   └── app/
-│       └── main.go
-├── app/
-│   ├── app-module.go
-│   ├── controller/
-│   │   ├── module.go
-│   │   ├── user-controller.go
-│   │   ├── post-controller.go
-│   │   └── comment-controller.go
-│   ├── service/
-│   │   ├── module.go
-│   │   ├── user-service.go
-│   │   ├── post-service.go
-│   │   └── comment-service.go
-│   └── repository/
-│       ├── module.go
-│       ├── user-repository.go
-│       ├── post-repository.go
-│       └── comment-repository.go
-├── go.mod
-└── go.sum
-```
+<FileTree>
+  <FileTree.Folder name="GIMBAP-project" defaultOpen>
+    <FileTree.Folder name="cmd" defaultOpen>
+      <FileTree.Folder name="app" defaultOpen>
+        <FileTree.File name="main.go" />
+      </FileTree.Folder>
+    </FileTree.Folder>
+    <FileTree.Folder name="app" defaultOpen>
+      <FileTree.File name="app-module.go" />
+      <FileTree.Folder name="controller" defaultOpen>
+        <FileTree.File name="module.go" />
+        <FileTree.File name="user-controller.go" />
+        <FileTree.File name="post-controller.go" />
+        <FileTree.File name="comment-controller.go" />
+      </FileTree.Folder>
+      <FileTree.Folder name="service" defaultOpen>
+        <FileTree.File name="module.go" />
+        <FileTree.File name="user-service.go" />
+        <FileTree.File name="post-service.go" />
+        <FileTree.File name="comment-service.go" />
+      </FileTree.Folder>
+      <FileTree.Folder name="repository" defaultOpen>
+        <FileTree.File name="module.go" />
+        <FileTree.File name="user-repository.go" />
+        <FileTree.File name="post-repository.go" />
+        <FileTree.File name="comment-repository.go" />
+      </FileTree.Folder>
+    </FileTree.Folder>
+    <FileTree.File name="go.mod" />
+    <FileTree.File name="go.sum" />
+  </FileTree.Folder>
+</FileTree>
