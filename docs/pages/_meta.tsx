@@ -4,5 +4,6 @@ export default {
   howitstarted: "How It Started",
   gettingstarted: "Getting Started",
   mainconcepts: "Main Concept and Architecture",
+  sampleprojects: "Sample Projects",
   walkthrough: "Walkthrough (WIP)",
 };
