@@ -1,0 +1,40 @@
+# HTTPS/TLS Support
+
+To use TLS with GIMBAP, you have to provide the certificate and the key files to the server engine.
+
+The TLS options can be given in two ways:
+
+1. As path to the certificate and key files.
+2. As a `tls.Config` object.
+
+## Using Certificate and Key Files
+
+The TLS option can be set as a runtime option upon starting the server.
+
+```go
+app.Run(gimbap.RuntimeOptions{
+  Port: 8080,
+  TLSOption: &gimbap.TLSOption{
+    CertFile: "https/server.crt",
+    KeyFile:  "https/server.key",
+  },
+})
+```
+
+The `CertFile` and `KeyFile` are the paths to the certificate and key files respectively. The server will use these file paths
+regardless of the server engine used.
+
+## Using `tls.Config`
+
+The `tls.Config` object can be used to set the TLS options.
+
+```go
+tlsConfig := loadTLSConfig()
+
+app.Run(gimbap.RuntimeOptions{
+  Port: 8080,
+  TLSOption: &gimbap.TLSOption{
+    Config: tlsConfig,
+  },
+})
+```
