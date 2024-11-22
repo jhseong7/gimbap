@@ -22,16 +22,34 @@ const config: DocsThemeConfig = {
   ),
   head: () => {
     const { title } = useConfig();
+
+    const titleStr = title + " – GIMBAP";
+    const description =
+      "Go Injection Management for Better Application Programming";
+    const siteRoot = "https://www.go-gimbap.com";
+
     return (
       <>
-        <title>{title} – GIMBAP</title>
+        <title>{titleStr}</title>
         <link rel="icon" href="/favicon.ico" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <meta property="og:title" content={title + " – GIMBAP"} />
-        <meta
-          property="og:description"
-          content="Go Injection Management for Better Application Programmingr"
-        />
+        <meta name="description" content={description} />
+        <meta property="og:title" content={titleStr} />
+        <meta property="og:description" content={description} />
+        <meta property="og:url" content={siteRoot} />
+        <meta property="og:type" content="website" />
+        <meta property="og:image" content={`${siteRoot}/og.png`} />
+        <meta property="og:site_name" content={titleStr} />
+        <meta property="og:logo" content={`${siteRoot}/og.png`} />
+        <meta property="og:image:alt" content="GIMBAP" />
+        <meta name="twitter:image" content={`${siteRoot}/og.png`} />
+        <meta property="twitter:title" content={titleStr} />
+        <meta property="twitter:description" content={description} />
+        <meta property="twitter:card" content={`${siteRoot}/og.png`} />
+        <meta name="twitter:image:type" content="website" />
+        <meta name="twitter:image:width" content="800" />
+        <meta name="twitter:image:height" content="420" />
+        <meta property="twitter:image:alt" content="GIMBAP" />
       </>
     );
   },

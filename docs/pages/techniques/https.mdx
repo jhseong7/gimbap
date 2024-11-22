@@ -7,7 +7,7 @@ The TLS options can be given in two ways:
 1. As path to the certificate and key files.
 2. As a `tls.Config` object.
 
-## Using Certificate and Key Files
+## Using Certificate and Key file paths
 
 The TLS option can be set as a runtime option upon starting the server.
 
@@ -24,7 +24,7 @@ app.Run(gimbap.RuntimeOptions{
 The `CertFile` and `KeyFile` are the paths to the certificate and key files respectively. The server will use these file paths
 regardless of the server engine used.
 
-## Using `tls.Config`
+## Using `tls.Config` difectly
 
 The `tls.Config` object can be used to set the TLS options.
 
@@ -37,4 +37,12 @@ app.Run(gimbap.RuntimeOptions{
     Config: tlsConfig,
   },
 })
+```
+
+## Check if the server is running with TLS
+
+The app will show a message in the console if the server is running with TLS.
+
+```sh
+| SampleApp    | 9637   2024-11-22T12:21:23+09:00 LOG    [FiberHttpEngine]    - Starting the http engine with TLS on port 8080
 ```
