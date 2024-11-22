@@ -8,9 +8,11 @@
     "start": "next start"
   },
   "dependencies": {
-    "next": "^13.0.6",
-    "nextra": "latest",
-    "nextra-theme-docs": "latest",
+    "@vercel/analytics": "^1.4.1",
+    "@vercel/speed-insights": "^1.1.0",
+    "next": "^14",
+    "nextra": "^3",
+    "nextra-theme-docs": "^3",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
