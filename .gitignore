@@ -1,6 +1,6 @@
 .DS_Store
 vendor/
 sample/
-cmd/
+sample-cmd/
 
 node_modules/
