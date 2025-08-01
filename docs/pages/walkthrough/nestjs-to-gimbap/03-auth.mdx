@@ -1,0 +1,1177 @@
+# Step 3: Authentication and Authorization
+
+This guide demonstrates how to implement JWT-based authentication and role-based authorization when porting from NestJS to GIMBAP.
+
+## Overview
+
+We'll implement:
+- User registration and login
+- JWT token generation and validation
+- Auth guards for protected routes
+- Role-based access control (RBAC)
+- Current user decorator pattern
+
+## User Entity and DTOs
+
+### NestJS User Entity
+
+```typescript
+// src/users/entities/user.entity.ts
+export class User {
+  id: number;
+  email: string;
+  password: string; // hashed
+  name: string;
+  roles: string[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// src/auth/dto/register.dto.ts
+import { IsEmail, IsString, MinLength, IsArray, IsOptional } from 'class-validator';
+
+export class RegisterDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  @MinLength(8)
+  password: string;
+
+  @IsString()
+  name: string;
+
+  @IsArray()
+  @IsOptional()
+  roles?: string[] = ['user'];
+}
+
+// src/auth/dto/login.dto.ts
+export class LoginDto {
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  password: string;
+}
+```
+
+### GIMBAP User Entity
+
+```go
+// internal/users/entity.go
+package users
+
+import "time"
+
+type User struct {
+    ID        int       `json:"id"`
+    Email     string    `json:"email"`
+    Password  string    `json:"-"` // Never include in JSON
+    Name      string    `json:"name"`
+    Roles     []string  `json:"roles"`
+    CreatedAt time.Time `json:"createdAt"`
+    UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// UserResponse without password
+type UserResponse struct {
+    ID        int       `json:"id"`
+    Email     string    `json:"email"`
+    Name      string    `json:"name"`
+    Roles     []string  `json:"roles"`
+    CreatedAt time.Time `json:"createdAt"`
+    UpdatedAt time.Time `json:"updatedAt"`
+}
+
+func (u *User) ToResponse() UserResponse {
+    return UserResponse{
+        ID:        u.ID,
+        Email:     u.Email,
+        Name:      u.Name,
+        Roles:     u.Roles,
+        CreatedAt: u.CreatedAt,
+        UpdatedAt: u.UpdatedAt,
+    }
+}
+
+// internal/auth/dto.go
+package auth
+
+type RegisterDto struct {
+    Email    string   `json:"email" binding:"required,email"`
+    Password string   `json:"password" binding:"required,min=8"`
+    Name     string   `json:"name" binding:"required"`
+    Roles    []string `json:"roles,omitempty"`
+}
+
+type LoginDto struct {
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required"`
+}
+
+type TokenResponse struct {
+    AccessToken  string `json:"accessToken"`
+    RefreshToken string `json:"refreshToken"`
+    ExpiresIn    int    `json:"expiresIn"`
+}
+```
+
+## Password Hashing Service
+
+### NestJS Password Service
+
+```typescript
+// src/auth/password.service.ts
+import { Injectable } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
+
+@Injectable()
+export class PasswordService {
+  private readonly saltRounds = 10;
+
+  async hash(password: string): Promise<string> {
+    return bcrypt.hash(password, this.saltRounds);
+  }
+
+  async compare(password: string, hash: string): Promise<boolean> {
+    return bcrypt.compare(password, hash);
+  }
+}
+```
+
+### GIMBAP Password Service
+
+```go
+// internal/auth/password.go
+package auth
+
+import (
+    "github.com/jhseong7/gimbap"
+    "golang.org/x/crypto/bcrypt"
+)
+
+type PasswordService struct {
+    saltRounds int
+}
+
+func NewPasswordService() *PasswordService {
+    return &PasswordService{
+        saltRounds: 10,
+    }
+}
+
+func (s *PasswordService) Hash(password string) (string, error) {
+    bytes, err := bcrypt.GenerateFromPassword([]byte(password), s.saltRounds)
+    if err != nil {
+        return "", err
+    }
+    return string(bytes), nil
+}
+
+func (s *PasswordService) Compare(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+    return err == nil
+}
+
+var PasswordServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "PasswordService",
+    Instantiator: NewPasswordService,
+})
+```
+
+## JWT Service
+
+### NestJS JWT Service
+
+```typescript
+// src/auth/jwt.service.ts
+import { Injectable } from '@nestjs/common';
+import { JwtService as NestJwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+
+export interface JwtPayload {
+  sub: number;
+  email: string;
+  roles: string[];
+}
+
+@Injectable()
+export class JwtService {
+  constructor(
+    private jwtService: NestJwtService,
+    private configService: ConfigService,
+  ) {}
+
+  async generateTokens(user: User) {
+    const payload: JwtPayload = {
+      sub: user.id,
+      email: user.email,
+      roles: user.roles,
+    };
+
+    const [accessToken, refreshToken] = await Promise.all([
+      this.jwtService.signAsync(payload, {
+        secret: this.configService.get('JWT_SECRET'),
+        expiresIn: '15m',
+      }),
+      this.jwtService.signAsync(payload, {
+        secret: this.configService.get('JWT_REFRESH_SECRET'),
+        expiresIn: '7d',
+      }),
+    ]);
+
+    return {
+      accessToken,
+      refreshToken,
+      expiresIn: 900, // 15 minutes in seconds
+    };
+  }
+
+  async verifyToken(token: string): Promise<JwtPayload> {
+    return this.jwtService.verifyAsync(token, {
+      secret: this.configService.get('JWT_SECRET'),
+    });
+  }
+}
+```
+
+### GIMBAP JWT Service
+
+```go
+// internal/auth/jwt.go
+package auth
+
+import (
+    "errors"
+    "time"
+    
+    "github.com/golang-jwt/jwt/v5"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/config"
+    "myapp/internal/users"
+)
+
+type JwtPayload struct {
+    Sub   int      `json:"sub"`
+    Email string   `json:"email"`
+    Roles []string `json:"roles"`
+    jwt.RegisteredClaims
+}
+
+type JwtService struct {
+    config *config.ConfigService
+}
+
+func NewJwtService(config *config.ConfigService) *JwtService {
+    return &JwtService{
+        config: config,
+    }
+}
+
+func (s *JwtService) GenerateTokens(user *users.User) (*TokenResponse, error) {
+    now := time.Now()
+    
+    // Access token claims
+    accessClaims := JwtPayload{
+        Sub:   user.ID,
+        Email: user.Email,
+        Roles: user.Roles,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+            IssuedAt:  jwt.NewNumericDate(now),
+        },
+    }
+    
+    // Create access token
+    accessToken := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+    accessTokenString, err := accessToken.SignedString([]byte(s.config.Get().JWT.Secret))
+    if err != nil {
+        return nil, err
+    }
+    
+    // Refresh token claims
+    refreshClaims := JwtPayload{
+        Sub:   user.ID,
+        Email: user.Email,
+        Roles: user.Roles,
+        RegisteredClaims: jwt.RegisteredClaims{
+            ExpiresAt: jwt.NewNumericDate(now.Add(7 * 24 * time.Hour)),
+            IssuedAt:  jwt.NewNumericDate(now),
+        },
+    }
+    
+    // Create refresh token
+    refreshToken := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+    refreshTokenString, err := refreshToken.SignedString([]byte(s.config.Get().JWT.RefreshSecret))
+    if err != nil {
+        return nil, err
+    }
+    
+    return &TokenResponse{
+        AccessToken:  accessTokenString,
+        RefreshToken: refreshTokenString,
+        ExpiresIn:    900, // 15 minutes
+    }, nil
+}
+
+func (s *JwtService) VerifyToken(tokenString string) (*JwtPayload, error) {
+    token, err := jwt.ParseWithClaims(tokenString, &JwtPayload{}, func(token *jwt.Token) (interface{}, error) {
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            return nil, errors.New("unexpected signing method")
+        }
+        return []byte(s.config.Get().JWT.Secret), nil
+    })
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    if claims, ok := token.Claims.(*JwtPayload); ok && token.Valid {
+        return claims, nil
+    }
+    
+    return nil, errors.New("invalid token")
+}
+
+var JwtServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "JwtService",
+    Instantiator: NewJwtService,
+})
+```
+
+## Auth Service
+
+### NestJS Auth Service
+
+```typescript
+// src/auth/auth.service.ts
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { UsersService } from '../users/users.service';
+import { JwtService } from './jwt.service';
+import { PasswordService } from './password.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    private usersService: UsersService,
+    private jwtService: JwtService,
+    private passwordService: PasswordService,
+  ) {}
+
+  async register(registerDto: RegisterDto) {
+    // Check if user exists
+    const existingUser = await this.usersService.findByEmail(registerDto.email);
+    if (existingUser) {
+      throw new ConflictException('User already exists');
+    }
+
+    // Hash password
+    const hashedPassword = await this.passwordService.hash(registerDto.password);
+
+    // Create user
+    const user = await this.usersService.create({
+      ...registerDto,
+      password: hashedPassword,
+      roles: registerDto.roles || ['user'],
+    });
+
+    // Generate tokens
+    const tokens = await this.jwtService.generateTokens(user);
+
+    return {
+      user,
+      ...tokens,
+    };
+  }
+
+  async login(loginDto: LoginDto) {
+    // Find user
+    const user = await this.usersService.findByEmail(loginDto.email);
+    if (!user) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Verify password
+    const isPasswordValid = await this.passwordService.compare(
+      loginDto.password,
+      user.password,
+    );
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Invalid credentials');
+    }
+
+    // Generate tokens
+    const tokens = await this.jwtService.generateTokens(user);
+
+    return {
+      user,
+      ...tokens,
+    };
+  }
+
+  async validateUser(userId: number) {
+    return this.usersService.findOne(userId);
+  }
+}
+```
+
+### GIMBAP Auth Service
+
+```go
+// internal/auth/service.go
+package auth
+
+import (
+    "errors"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/users"
+)
+
+type AuthService struct {
+    usersService    *users.UsersService
+    jwtService      *JwtService
+    passwordService *PasswordService
+}
+
+func NewAuthService(
+    usersService *users.UsersService,
+    jwtService *JwtService,
+    passwordService *PasswordService,
+) *AuthService {
+    return &AuthService{
+        usersService:    usersService,
+        jwtService:      jwtService,
+        passwordService: passwordService,
+    }
+}
+
+func (s *AuthService) Register(dto RegisterDto) (*AuthResponse, error) {
+    // Check if user exists
+    existingUser, _ := s.usersService.FindByEmail(dto.Email)
+    if existingUser != nil {
+        return nil, errors.New("user already exists")
+    }
+    
+    // Hash password
+    hashedPassword, err := s.passwordService.Hash(dto.Password)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Set default roles if not provided
+    if len(dto.Roles) == 0 {
+        dto.Roles = []string{"user"}
+    }
+    
+    // Create user
+    createUserDto := users.CreateUserDto{
+        Email:    dto.Email,
+        Password: hashedPassword,
+        Name:     dto.Name,
+        Roles:    dto.Roles,
+    }
+    
+    user, err := s.usersService.Create(createUserDto)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Generate tokens
+    tokens, err := s.jwtService.GenerateTokens(user)
+    if err != nil {
+        return nil, err
+    }
+    
+    return &AuthResponse{
+        User:         user.ToResponse(),
+        AccessToken:  tokens.AccessToken,
+        RefreshToken: tokens.RefreshToken,
+        ExpiresIn:    tokens.ExpiresIn,
+    }, nil
+}
+
+func (s *AuthService) Login(dto LoginDto) (*AuthResponse, error) {
+    // Find user
+    user, err := s.usersService.FindByEmail(dto.Email)
+    if err != nil {
+        return nil, errors.New("invalid credentials")
+    }
+    
+    // Verify password
+    if !s.passwordService.Compare(dto.Password, user.Password) {
+        return nil, errors.New("invalid credentials")
+    }
+    
+    // Generate tokens
+    tokens, err := s.jwtService.GenerateTokens(user)
+    if err != nil {
+        return nil, err
+    }
+    
+    return &AuthResponse{
+        User:         user.ToResponse(),
+        AccessToken:  tokens.AccessToken,
+        RefreshToken: tokens.RefreshToken,
+        ExpiresIn:    tokens.ExpiresIn,
+    }, nil
+}
+
+func (s *AuthService) ValidateUser(userId int) (*users.User, error) {
+    return s.usersService.FindOne(userId)
+}
+
+type AuthResponse struct {
+    User         users.UserResponse `json:"user"`
+    AccessToken  string            `json:"accessToken"`
+    RefreshToken string            `json:"refreshToken"`
+    ExpiresIn    int               `json:"expiresIn"`
+}
+
+var AuthServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "AuthService",
+    Instantiator: NewAuthService,
+})
+```
+
+## Auth Guard
+
+### NestJS Auth Guard
+
+```typescript
+// src/auth/guards/jwt-auth.guard.ts
+import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
+import { JwtService } from '../jwt.service';
+import { Request } from 'express';
+
+@Injectable()
+export class JwtAuthGuard implements CanActivate {
+  constructor(private jwtService: JwtService) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest();
+    const token = this.extractTokenFromHeader(request);
+    
+    if (!token) {
+      throw new UnauthorizedException();
+    }
+    
+    try {
+      const payload = await this.jwtService.verifyToken(token);
+      request.user = payload;
+      return true;
+    } catch {
+      throw new UnauthorizedException();
+    }
+  }
+
+  private extractTokenFromHeader(request: Request): string | undefined {
+    const [type, token] = request.headers.authorization?.split(' ') ?? [];
+    return type === 'Bearer' ? token : undefined;
+  }
+}
+```
+
+### GIMBAP Auth Guard
+
+```go
+// internal/auth/guards/jwt_guard.go
+package guards
+
+import (
+    "net/http"
+    "strings"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/auth"
+)
+
+type JwtAuthGuard struct {
+    jwtService *auth.JwtService
+}
+
+func NewJwtAuthGuard(jwtService *auth.JwtService) *JwtAuthGuard {
+    return &JwtAuthGuard{
+        jwtService: jwtService,
+    }
+}
+
+func (g *JwtAuthGuard) Authenticate() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := g.extractTokenFromHeader(c)
+        
+        if token == "" {
+            c.JSON(http.StatusUnauthorized, gin.H{
+                "error": "Unauthorized",
+            })
+            c.Abort()
+            return
+        }
+        
+        payload, err := g.jwtService.VerifyToken(token)
+        if err != nil {
+            c.JSON(http.StatusUnauthorized, gin.H{
+                "error": "Invalid token",
+            })
+            c.Abort()
+            return
+        }
+        
+        // Store user info in context
+        c.Set("userId", payload.Sub)
+        c.Set("userEmail", payload.Email)
+        c.Set("userRoles", payload.Roles)
+        c.Set("jwtPayload", payload)
+        
+        c.Next()
+    }
+}
+
+func (g *JwtAuthGuard) extractTokenFromHeader(c *gin.Context) string {
+    authHeader := c.GetHeader("Authorization")
+    if authHeader == "" {
+        return ""
+    }
+    
+    parts := strings.Split(authHeader, " ")
+    if len(parts) != 2 || parts[0] != "Bearer" {
+        return ""
+    }
+    
+    return parts[1]
+}
+
+var JwtAuthGuardProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "JwtAuthGuard",
+    Instantiator: NewJwtAuthGuard,
+})
+```
+
+## Roles Guard
+
+### NestJS Roles Guard
+
+```typescript
+// src/auth/guards/roles.guard.ts
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { ROLES_KEY } from '../decorators/roles.decorator';
+
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<string[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    
+    if (!requiredRoles) {
+      return true;
+    }
+    
+    const { user } = context.switchToHttp().getRequest();
+    return requiredRoles.some((role) => user.roles?.includes(role));
+  }
+}
+
+// src/auth/decorators/roles.decorator.ts
+import { SetMetadata } from '@nestjs/common';
+
+export const ROLES_KEY = 'roles';
+export const Roles = (...roles: string[]) => SetMetadata(ROLES_KEY, roles);
+```
+
+### GIMBAP Roles Guard
+
+```go
+// internal/auth/guards/roles_guard.go
+package guards
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+type RolesGuard struct{}
+
+func NewRolesGuard() *RolesGuard {
+    return &RolesGuard{}
+}
+
+func (g *RolesGuard) RequireRoles(requiredRoles ...string) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Get user roles from context (set by JwtAuthGuard)
+        userRolesInterface, exists := c.Get("userRoles")
+        if !exists {
+            c.JSON(http.StatusForbidden, gin.H{
+                "error": "Forbidden",
+            })
+            c.Abort()
+            return
+        }
+        
+        userRoles, ok := userRolesInterface.([]string)
+        if !ok {
+            c.JSON(http.StatusInternalServerError, gin.H{
+                "error": "Invalid user roles",
+            })
+            c.Abort()
+            return
+        }
+        
+        // Check if user has any required role
+        hasRole := false
+        for _, requiredRole := range requiredRoles {
+            for _, userRole := range userRoles {
+                if userRole == requiredRole {
+                    hasRole = true
+                    break
+                }
+            }
+            if hasRole {
+                break
+            }
+        }
+        
+        if !hasRole {
+            c.JSON(http.StatusForbidden, gin.H{
+                "error": "Insufficient permissions",
+            })
+            c.Abort()
+            return
+        }
+        
+        c.Next()
+    }
+}
+
+var RolesGuardProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "RolesGuard",
+    Instantiator: NewRolesGuard,
+})
+```
+
+## Auth Controller
+
+### NestJS Auth Controller
+
+```typescript
+// src/auth/auth.controller.ts
+import { Controller, Post, Body, Get, UseGuards, Request } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { RegisterDto } from './dto/register.dto';
+import { LoginDto } from './dto/login.dto';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
+
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly authService: AuthService) {}
+
+  @Post('register')
+  register(@Body() registerDto: RegisterDto) {
+    return this.authService.register(registerDto);
+  }
+
+  @Post('login')
+  login(@Body() loginDto: LoginDto) {
+    return this.authService.login(loginDto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('profile')
+  getProfile(@Request() req) {
+    return req.user;
+  }
+}
+```
+
+### GIMBAP Auth Controller
+
+```go
+// internal/auth/controller.go
+package auth
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/auth/guards"
+)
+
+type AuthController struct {
+    gimbap.IController
+    authService *AuthService
+    jwtGuard    *guards.JwtAuthGuard
+}
+
+func NewAuthController(authService *AuthService, jwtGuard *guards.JwtAuthGuard) *AuthController {
+    return &AuthController{
+        authService: authService,
+        jwtGuard:    jwtGuard,
+    }
+}
+
+func (c *AuthController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "POST",
+            Path:    "/register",
+            Handler: c.Register,
+        },
+        {
+            Method:  "POST",
+            Path:    "/login",
+            Handler: c.Login,
+        },
+        {
+            Method:  "GET",
+            Path:    "/profile",
+            Handler: c.GetProfile,
+            Middlewares: []gin.HandlerFunc{
+                c.jwtGuard.Authenticate(),
+            },
+        },
+    }
+}
+
+func (c *AuthController) Register(ctx *gin.Context) {
+    var dto RegisterDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Validation failed",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    response, err := c.authService.Register(dto)
+    if err != nil {
+        statusCode := http.StatusInternalServerError
+        if err.Error() == "user already exists" {
+            statusCode = http.StatusConflict
+        }
+        
+        ctx.JSON(statusCode, gin.H{
+            "error": err.Error(),
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusCreated, response)
+}
+
+func (c *AuthController) Login(ctx *gin.Context) {
+    var dto LoginDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Validation failed",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    response, err := c.authService.Login(dto)
+    if err != nil {
+        ctx.JSON(http.StatusUnauthorized, gin.H{
+            "error": err.Error(),
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, response)
+}
+
+func (c *AuthController) GetProfile(ctx *gin.Context) {
+    // Get JWT payload from context
+    payload, _ := ctx.Get("jwtPayload")
+    ctx.JSON(http.StatusOK, payload)
+}
+
+var AuthControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "AuthController",
+    Instantiator: NewAuthController,
+    RootPath:     "auth",
+})
+```
+
+## Protected Routes Example
+
+### NestJS Protected Controller
+
+```typescript
+// src/admin/admin.controller.ts
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
+
+@Controller('admin')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class AdminController {
+  @Get('dashboard')
+  @Roles('admin')
+  getDashboard() {
+    return {
+      message: 'Admin dashboard',
+      data: {
+        users: 100,
+        revenue: 50000,
+      },
+    };
+  }
+
+  @Get('users')
+  @Roles('admin', 'moderator')
+  getUsers() {
+    return {
+      message: 'User list for admins and moderators',
+    };
+  }
+}
+```
+
+### GIMBAP Protected Controller
+
+```go
+// internal/admin/controller.go
+package admin
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/auth/guards"
+)
+
+type AdminController struct {
+    gimbap.IController
+    jwtGuard   *guards.JwtAuthGuard
+    rolesGuard *guards.RolesGuard
+}
+
+func NewAdminController(jwtGuard *guards.JwtAuthGuard, rolesGuard *guards.RolesGuard) *AdminController {
+    return &AdminController{
+        jwtGuard:   jwtGuard,
+        rolesGuard: rolesGuard,
+    }
+}
+
+func (c *AdminController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/dashboard",
+            Handler: c.GetDashboard,
+            Middlewares: []gin.HandlerFunc{
+                c.jwtGuard.Authenticate(),
+                c.rolesGuard.RequireRoles("admin"),
+            },
+        },
+        {
+            Method:  "GET",
+            Path:    "/users",
+            Handler: c.GetUsers,
+            Middlewares: []gin.HandlerFunc{
+                c.jwtGuard.Authenticate(),
+                c.rolesGuard.RequireRoles("admin", "moderator"),
+            },
+        },
+    }
+}
+
+func (c *AdminController) GetDashboard(ctx *gin.Context) {
+    ctx.JSON(http.StatusOK, gin.H{
+        "message": "Admin dashboard",
+        "data": gin.H{
+            "users":   100,
+            "revenue": 50000,
+        },
+    })
+}
+
+func (c *AdminController) GetUsers(ctx *gin.Context) {
+    ctx.JSON(http.StatusOK, gin.H{
+        "message": "User list for admins and moderators",
+    })
+}
+
+var AdminControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "AdminController",
+    Instantiator: NewAdminController,
+    RootPath:     "admin",
+})
+```
+
+## Current User Pattern
+
+### NestJS Current User Decorator
+
+```typescript
+// src/auth/decorators/current-user.decorator.ts
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+
+export const CurrentUser = createParamDecorator(
+  (data: unknown, ctx: ExecutionContext) => {
+    const request = ctx.switchToHttp().getRequest();
+    return request.user;
+  },
+);
+
+// Usage in controller
+@Get('me')
+@UseGuards(JwtAuthGuard)
+getMe(@CurrentUser() user: JwtPayload) {
+  return user;
+}
+```
+
+### GIMBAP Current User Helper
+
+```go
+// internal/auth/helpers/current_user.go
+package helpers
+
+import (
+    "github.com/gin-gonic/gin"
+    "myapp/internal/auth"
+)
+
+func GetCurrentUser(c *gin.Context) (*auth.JwtPayload, bool) {
+    payload, exists := c.Get("jwtPayload")
+    if !exists {
+        return nil, false
+    }
+    
+    jwtPayload, ok := payload.(*auth.JwtPayload)
+    return jwtPayload, ok
+}
+
+func GetCurrentUserId(c *gin.Context) (int, bool) {
+    userId, exists := c.Get("userId")
+    if !exists {
+        return 0, false
+    }
+    
+    id, ok := userId.(int)
+    return id, ok
+}
+
+// Usage in controller
+func (c *SomeController) GetMe(ctx *gin.Context) {
+    user, ok := helpers.GetCurrentUser(ctx)
+    if !ok {
+        ctx.JSON(http.StatusUnauthorized, gin.H{
+            "error": "User not found",
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, user)
+}
+```
+
+## Module Setup
+
+### Auth Module
+
+```go
+// internal/auth/module.go
+package auth
+
+import (
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/auth/guards"
+)
+
+var AuthModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "AuthModule",
+    Controllers: []*gimbap.Controller{
+        AuthControllerProvider,
+    },
+    Providers: []*gimbap.Provider{
+        AuthServiceProvider,
+        JwtServiceProvider,
+        PasswordServiceProvider,
+        guards.JwtAuthGuardProvider,
+        guards.RolesGuardProvider,
+    },
+})
+```
+
+## Testing Authentication
+
+### Test Requests
+
+```bash
+# Register a new user
+curl -X POST http://localhost:3000/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "password123",
+    "name": "Admin User",
+    "roles": ["admin", "user"]
+  }'
+
+# Login
+curl -X POST http://localhost:3000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "password123"
+  }'
+
+# Access protected route
+curl http://localhost:3000/auth/profile \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# Access admin route
+curl http://localhost:3000/admin/dashboard \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+## Best Practices
+
+1. **Security**
+   - Always hash passwords with bcrypt
+   - Use strong JWT secrets
+   - Implement token expiration
+   - Consider refresh token rotation
+
+2. **Error Handling**
+   - Don't leak sensitive information
+   - Use consistent error formats
+   - Log security events
+
+3. **Performance**
+   - Cache JWT verification results
+   - Use connection pooling for database
+   - Consider rate limiting
+
+4. **Testing**
+   - Test with invalid tokens
+   - Test role-based access
+   - Test token expiration
+
+## Summary
+
+Key differences when implementing auth:
+1. **Manual Token Extraction**: No decorators, use middleware
+2. **Context Storage**: Store auth data in Gin context
+3. **Error Handling**: Explicit error returns vs exceptions
+4. **Guard Composition**: Chain middleware functions
+
+## Next Steps
+
+- [Microservices and Background Tasks →](./04-microservices)
+- [Advanced Patterns →](./05-advanced)
+- [Testing →](./06-testing)

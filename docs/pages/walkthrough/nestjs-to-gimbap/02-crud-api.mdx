@@ -1,0 +1,829 @@
+# Step 2: CRUD REST API
+
+This guide demonstrates how to convert a complete CRUD REST API from NestJS to GIMBAP, using a "Books" resource as an example.
+
+## API Overview
+
+We'll implement these endpoints:
+- `GET /books` - List all books
+- `GET /books/:id` - Get a single book
+- `POST /books` - Create a new book
+- `PUT /books/:id` - Update a book
+- `DELETE /books/:id` - Delete a book
+
+## Data Transfer Objects (DTOs)
+
+### NestJS DTOs with Validation
+
+```typescript
+// src/books/dto/create-book.dto.ts
+import { IsString, IsNotEmpty, IsISBN, IsInt, Min, Max } from 'class-validator';
+
+export class CreateBookDto {
+  @IsString()
+  @IsNotEmpty()
+  title: string;
+
+  @IsString()
+  @IsNotEmpty()
+  author: string;
+
+  @IsISBN()
+  isbn: string;
+
+  @IsInt()
+  @Min(1900)
+  @Max(2024)
+  publishYear: number;
+}
+
+// src/books/dto/update-book.dto.ts
+import { PartialType } from '@nestjs/mapped-types';
+import { CreateBookDto } from './create-book.dto';
+
+export class UpdateBookDto extends PartialType(CreateBookDto) {}
+
+// src/books/entities/book.entity.ts
+export class Book {
+  id: number;
+  title: string;
+  author: string;
+  isbn: string;
+  publishYear: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+```
+
+### GIMBAP DTOs with Validation
+
+```go
+// internal/books/dto.go
+package books
+
+import "time"
+
+// CreateBookDto with validation tags
+type CreateBookDto struct {
+    Title       string `json:"title" binding:"required"`
+    Author      string `json:"author" binding:"required"`
+    ISBN        string `json:"isbn" binding:"required,isbn"`
+    PublishYear int    `json:"publishYear" binding:"required,min=1900,max=2024"`
+}
+
+// UpdateBookDto - all fields optional
+type UpdateBookDto struct {
+    Title       *string `json:"title,omitempty"`
+    Author      *string `json:"author,omitempty"`
+    ISBN        *string `json:"isbn,omitempty" binding:"omitempty,isbn"`
+    PublishYear *int    `json:"publishYear,omitempty" binding:"omitempty,min=1900,max=2024"`
+}
+
+// Book entity
+type Book struct {
+    ID          int       `json:"id"`
+    Title       string    `json:"title"`
+    Author      string    `json:"author"`
+    ISBN        string    `json:"isbn"`
+    PublishYear int       `json:"publishYear"`
+    CreatedAt   time.Time `json:"createdAt"`
+    UpdatedAt   time.Time `json:"updatedAt"`
+}
+```
+
+## Repository Layer
+
+### NestJS Repository
+
+```typescript
+// src/books/books.repository.ts
+import { Injectable } from '@nestjs/common';
+import { Book } from './entities/book.entity';
+import { CreateBookDto } from './dto/create-book.dto';
+import { UpdateBookDto } from './dto/update-book.dto';
+
+@Injectable()
+export class BooksRepository {
+  private books: Book[] = [];
+  private idCounter = 1;
+
+  create(createBookDto: CreateBookDto): Book {
+    const book: Book = {
+      id: this.idCounter++,
+      ...createBookDto,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.books.push(book);
+    return book;
+  }
+
+  findAll(): Book[] {
+    return this.books;
+  }
+
+  findOne(id: number): Book | undefined {
+    return this.books.find(book => book.id === id);
+  }
+
+  update(id: number, updateBookDto: UpdateBookDto): Book | undefined {
+    const index = this.books.findIndex(book => book.id === id);
+    if (index === -1) {
+      return undefined;
+    }
+    
+    this.books[index] = {
+      ...this.books[index],
+      ...updateBookDto,
+      updatedAt: new Date(),
+    };
+    
+    return this.books[index];
+  }
+
+  remove(id: number): boolean {
+    const index = this.books.findIndex(book => book.id === id);
+    if (index === -1) {
+      return false;
+    }
+    
+    this.books.splice(index, 1);
+    return true;
+  }
+}
+```
+
+### GIMBAP Repository
+
+```go
+// internal/books/repository.go
+package books
+
+import (
+    "sync"
+    "time"
+    "github.com/jhseong7/gimbap"
+)
+
+type BooksRepository struct {
+    mu       sync.RWMutex
+    books    []Book
+    idCounter int
+}
+
+func NewBooksRepository() *BooksRepository {
+    return &BooksRepository{
+        books:     make([]Book, 0),
+        idCounter: 1,
+    }
+}
+
+func (r *BooksRepository) Create(dto CreateBookDto) *Book {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    
+    book := Book{
+        ID:          r.idCounter,
+        Title:       dto.Title,
+        Author:      dto.Author,
+        ISBN:        dto.ISBN,
+        PublishYear: dto.PublishYear,
+        CreatedAt:   time.Now(),
+        UpdatedAt:   time.Now(),
+    }
+    
+    r.idCounter++
+    r.books = append(r.books, book)
+    
+    return &book
+}
+
+func (r *BooksRepository) FindAll() []Book {
+    r.mu.RLock()
+    defer r.mu.RUnlock()
+    
+    // Return a copy to prevent external modifications
+    result := make([]Book, len(r.books))
+    copy(result, r.books)
+    return result
+}
+
+func (r *BooksRepository) FindOne(id int) *Book {
+    r.mu.RLock()
+    defer r.mu.RUnlock()
+    
+    for _, book := range r.books {
+        if book.ID == id {
+            // Return a copy
+            bookCopy := book
+            return &bookCopy
+        }
+    }
+    
+    return nil
+}
+
+func (r *BooksRepository) Update(id int, dto UpdateBookDto) *Book {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    
+    for i, book := range r.books {
+        if book.ID == id {
+            // Update only provided fields
+            if dto.Title != nil {
+                r.books[i].Title = *dto.Title
+            }
+            if dto.Author != nil {
+                r.books[i].Author = *dto.Author
+            }
+            if dto.ISBN != nil {
+                r.books[i].ISBN = *dto.ISBN
+            }
+            if dto.PublishYear != nil {
+                r.books[i].PublishYear = *dto.PublishYear
+            }
+            r.books[i].UpdatedAt = time.Now()
+            
+            // Return a copy
+            bookCopy := r.books[i]
+            return &bookCopy
+        }
+    }
+    
+    return nil
+}
+
+func (r *BooksRepository) Remove(id int) bool {
+    r.mu.Lock()
+    defer r.mu.Unlock()
+    
+    for i, book := range r.books {
+        if book.ID == id {
+            // Remove the book
+            r.books = append(r.books[:i], r.books[i+1:]...)
+            return true
+        }
+    }
+    
+    return false
+}
+
+var BooksRepositoryProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "BooksRepository",
+    Instantiator: NewBooksRepository,
+})
+```
+
+## Service Layer
+
+### NestJS Service
+
+```typescript
+// src/books/books.service.ts
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { CreateBookDto } from './dto/create-book.dto';
+import { UpdateBookDto } from './dto/update-book.dto';
+import { BooksRepository } from './books.repository';
+
+@Injectable()
+export class BooksService {
+  constructor(private readonly booksRepository: BooksRepository) {}
+
+  create(createBookDto: CreateBookDto) {
+    return this.booksRepository.create(createBookDto);
+  }
+
+  findAll() {
+    return this.booksRepository.findAll();
+  }
+
+  findOne(id: number) {
+    const book = this.booksRepository.findOne(id);
+    if (!book) {
+      throw new NotFoundException(`Book with ID ${id} not found`);
+    }
+    return book;
+  }
+
+  update(id: number, updateBookDto: UpdateBookDto) {
+    const book = this.booksRepository.update(id, updateBookDto);
+    if (!book) {
+      throw new NotFoundException(`Book with ID ${id} not found`);
+    }
+    return book;
+  }
+
+  remove(id: number) {
+    const success = this.booksRepository.remove(id);
+    if (!success) {
+      throw new NotFoundException(`Book with ID ${id} not found`);
+    }
+  }
+}
+```
+
+### GIMBAP Service
+
+```go
+// internal/books/service.go
+package books
+
+import (
+    "fmt"
+    "github.com/jhseong7/gimbap"
+)
+
+type BooksService struct {
+    repository *BooksRepository
+}
+
+func NewBooksService(repository *BooksRepository) *BooksService {
+    return &BooksService{
+        repository: repository,
+    }
+}
+
+func (s *BooksService) Create(dto CreateBookDto) *Book {
+    return s.repository.Create(dto)
+}
+
+func (s *BooksService) FindAll() []Book {
+    return s.repository.FindAll()
+}
+
+func (s *BooksService) FindOne(id int) (*Book, error) {
+    book := s.repository.FindOne(id)
+    if book == nil {
+        return nil, fmt.Errorf("book with ID %d not found", id)
+    }
+    return book, nil
+}
+
+func (s *BooksService) Update(id int, dto UpdateBookDto) (*Book, error) {
+    book := s.repository.Update(id, dto)
+    if book == nil {
+        return nil, fmt.Errorf("book with ID %d not found", id)
+    }
+    return book, nil
+}
+
+func (s *BooksService) Remove(id int) error {
+    success := s.repository.Remove(id)
+    if !success {
+        return fmt.Errorf("book with ID %d not found", id)
+    }
+    return nil
+}
+
+var BooksServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "BooksService",
+    Instantiator: NewBooksService,
+})
+```
+
+## Controller Layer
+
+### NestJS Controller
+
+```typescript
+// src/books/books.controller.ts
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Put,
+  Param,
+  Delete,
+  ParseIntPipe,
+  HttpCode,
+  HttpStatus,
+} from '@nestjs/common';
+import { BooksService } from './books.service';
+import { CreateBookDto } from './dto/create-book.dto';
+import { UpdateBookDto } from './dto/update-book.dto';
+
+@Controller('books')
+export class BooksController {
+  constructor(private readonly booksService: BooksService) {}
+
+  @Post()
+  @HttpCode(HttpStatus.CREATED)
+  create(@Body() createBookDto: CreateBookDto) {
+    return this.booksService.create(createBookDto);
+  }
+
+  @Get()
+  findAll() {
+    return this.booksService.findAll();
+  }
+
+  @Get(':id')
+  findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.booksService.findOne(id);
+  }
+
+  @Put(':id')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() updateBookDto: UpdateBookDto,
+  ) {
+    return this.booksService.update(id, updateBookDto);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(@Param('id', ParseIntPipe) id: number) {
+    return this.booksService.remove(id);
+  }
+}
+```
+
+### GIMBAP Controller
+
+```go
+// internal/books/controller.go
+package books
+
+import (
+    "net/http"
+    "strconv"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+type BooksController struct {
+    gimbap.IController
+    service *BooksService
+}
+
+func NewBooksController(service *BooksService) *BooksController {
+    return &BooksController{
+        service: service,
+    }
+}
+
+func (c *BooksController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "POST",
+            Path:    "/",
+            Handler: c.Create,
+        },
+        {
+            Method:  "GET",
+            Path:    "/",
+            Handler: c.FindAll,
+        },
+        {
+            Method:  "GET",
+            Path:    "/:id",
+            Handler: c.FindOne,
+        },
+        {
+            Method:  "PUT",
+            Path:    "/:id",
+            Handler: c.Update,
+        },
+        {
+            Method:  "DELETE",
+            Path:    "/:id",
+            Handler: c.Remove,
+        },
+    }
+}
+
+func (c *BooksController) Create(ctx *gin.Context) {
+    var dto CreateBookDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Validation failed",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    book := c.service.Create(dto)
+    ctx.JSON(http.StatusCreated, book)
+}
+
+func (c *BooksController) FindAll(ctx *gin.Context) {
+    books := c.service.FindAll()
+    ctx.JSON(http.StatusOK, books)
+}
+
+func (c *BooksController) FindOne(ctx *gin.Context) {
+    idStr := ctx.Param("id")
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Invalid ID format",
+        })
+        return
+    }
+    
+    book, err := c.service.FindOne(id)
+    if err != nil {
+        ctx.JSON(http.StatusNotFound, gin.H{
+            "error": err.Error(),
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, book)
+}
+
+func (c *BooksController) Update(ctx *gin.Context) {
+    idStr := ctx.Param("id")
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Invalid ID format",
+        })
+        return
+    }
+    
+    var dto UpdateBookDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Validation failed",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    book, err := c.service.Update(id, dto)
+    if err != nil {
+        ctx.JSON(http.StatusNotFound, gin.H{
+            "error": err.Error(),
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, book)
+}
+
+func (c *BooksController) Remove(ctx *gin.Context) {
+    idStr := ctx.Param("id")
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Invalid ID format",
+        })
+        return
+    }
+    
+    if err := c.service.Remove(id); err != nil {
+        ctx.JSON(http.StatusNotFound, gin.H{
+            "error": err.Error(),
+        })
+        return
+    }
+    
+    ctx.Status(http.StatusNoContent)
+}
+
+var BooksControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "BooksController",
+    Instantiator: NewBooksController,
+    RootPath:     "books",
+})
+```
+
+## Module Setup
+
+### NestJS Module
+
+```typescript
+// src/books/books.module.ts
+import { Module } from '@nestjs/common';
+import { BooksService } from './books.service';
+import { BooksController } from './books.controller';
+import { BooksRepository } from './books.repository';
+
+@Module({
+  controllers: [BooksController],
+  providers: [BooksService, BooksRepository],
+  exports: [BooksService],
+})
+export class BooksModule {}
+```
+
+### GIMBAP Module
+
+```go
+// internal/books/module.go
+package books
+
+import "github.com/jhseong7/gimbap"
+
+var BooksModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "BooksModule",
+    Controllers: []*gimbap.Controller{
+        BooksControllerProvider,
+    },
+    Providers: []*gimbap.Provider{
+        BooksServiceProvider,
+        BooksRepositoryProvider,
+    },
+})
+```
+
+## Error Handling
+
+### Global Exception Filter
+
+```go
+// internal/middleware/error_handler.go
+package middleware
+
+import (
+    "net/http"
+    "github.com/gin-gonic/gin"
+)
+
+type APIError struct {
+    StatusCode int                    `json:"-"`
+    Error      string                 `json:"error"`
+    Details    map[string]interface{} `json:"details,omitempty"`
+}
+
+func ErrorHandler() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        c.Next()
+        
+        // Handle any errors that occurred during request processing
+        if len(c.Errors) > 0 {
+            err := c.Errors.Last()
+            
+            // Default to 500 Internal Server Error
+            statusCode := http.StatusInternalServerError
+            errorMessage := "Internal server error"
+            
+            // Check if it's a custom API error
+            if apiErr, ok := err.Err.(*APIError); ok {
+                statusCode = apiErr.StatusCode
+                errorMessage = apiErr.Error
+                c.JSON(statusCode, apiErr)
+                return
+            }
+            
+            c.JSON(statusCode, gin.H{
+                "error": errorMessage,
+                "details": err.Error(),
+            })
+        }
+    }
+}
+```
+
+## Testing the API
+
+### Using cURL
+
+```bash
+# Create a book
+curl -X POST http://localhost:3000/books \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "The Go Programming Language",
+    "author": "Alan Donovan and Brian Kernighan",
+    "isbn": "978-0134190440",
+    "publishYear": 2015
+  }'
+
+# Get all books
+curl http://localhost:3000/books
+
+# Get a single book
+curl http://localhost:3000/books/1
+
+# Update a book
+curl -X PUT http://localhost:3000/books/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "The Go Programming Language (Updated)"
+  }'
+
+# Delete a book
+curl -X DELETE http://localhost:3000/books/1
+```
+
+## Adding Pagination and Filtering
+
+### NestJS Query Parameters
+
+```typescript
+// src/books/dto/query-books.dto.ts
+import { Type } from 'class-transformer';
+import { IsOptional, IsInt, Min, IsString } from 'class-validator';
+
+export class QueryBooksDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number = 10;
+
+  @IsOptional()
+  @IsString()
+  search?: string;
+
+  @IsOptional()
+  @IsString()
+  author?: string;
+}
+```
+
+### GIMBAP Query Parameters
+
+```go
+// internal/books/dto.go (add to existing file)
+
+type QueryBooksDto struct {
+    Page   int    `form:"page,default=1" binding:"omitempty,min=1"`
+    Limit  int    `form:"limit,default=10" binding:"omitempty,min=1,max=100"`
+    Search string `form:"search" binding:"omitempty"`
+    Author string `form:"author" binding:"omitempty"`
+}
+
+// Update controller FindAll method
+func (c *BooksController) FindAll(ctx *gin.Context) {
+    var query QueryBooksDto
+    if err := ctx.ShouldBindQuery(&query); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Invalid query parameters",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    // Apply pagination and filtering in service
+    books := c.service.FindAll()
+    
+    // Simple pagination logic (in real app, do this in repository)
+    start := (query.Page - 1) * query.Limit
+    end := start + query.Limit
+    
+    if start > len(books) {
+        start = len(books)
+    }
+    if end > len(books) {
+        end = len(books)
+    }
+    
+    paginatedBooks := books[start:end]
+    
+    ctx.JSON(http.StatusOK, gin.H{
+        "data": paginatedBooks,
+        "meta": gin.H{
+            "page":  query.Page,
+            "limit": query.Limit,
+            "total": len(books),
+        },
+    })
+}
+```
+
+## Best Practices
+
+### 1. Input Validation
+- Use struct tags for automatic validation
+- Create custom validators for complex rules
+- Return clear error messages
+
+### 2. Error Handling
+- Use consistent error response format
+- Implement proper HTTP status codes
+- Log errors for debugging
+
+### 3. Repository Pattern
+- Keep business logic in services
+- Use repositories for data access
+- Make repositories thread-safe in Go
+
+### 4. DTOs
+- Separate request/response DTOs from entities
+- Use pointer types for optional fields in update DTOs
+- Validate all user input
+
+## Summary
+
+Key differences when porting CRUD APIs:
+1. **Validation**: Struct tags vs decorators
+2. **Error Handling**: Error returns vs exceptions
+3. **Concurrency**: Mutex for thread safety in Go
+4. **Type System**: Explicit nil checks and type conversions
+
+## Next Steps
+
+- [Authentication and Authorization →](./03-auth) - Add JWT auth
+- [Advanced Patterns →](./05-advanced) - Custom providers and interceptors
+- [Testing →](./06-testing) - Unit and integration testing

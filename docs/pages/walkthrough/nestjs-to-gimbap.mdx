@@ -1,0 +1,172 @@
+# Porting NestJS Applications to GIMBAP
+
+This comprehensive guide will help you migrate your NestJS applications to GIMBAP, Go's dependency injection web framework. We'll cover everything from basic setup to advanced patterns.
+
+## Overview
+
+NestJS and GIMBAP share similar architectural principles:
+- Dependency Injection (DI)
+- Modular architecture
+- Separation of concerns
+- Decorator/annotation-based programming (NestJS) vs explicit registration (GIMBAP)
+
+### Key Differences
+
+| Feature | NestJS | GIMBAP |
+|---------|---------|---------|
+| Language | TypeScript/JavaScript | Go |
+| Decorators | `@Injectable()`, `@Controller()` | Explicit registration with `DefineProvider()` |
+| DI Container | Built-in | Multiple backends (native, Fx, Wire) |
+| HTTP Engines | Express/Fastify | Gin/Fiber/Echo |
+| Type Safety | Runtime + compile-time | Compile-time only |
+| Async Model | Promises/async-await | Goroutines |
+
+## Getting Started
+
+### Prerequisites
+
+- Basic knowledge of both NestJS and Go
+- Go 1.21+ installed
+- Understanding of dependency injection concepts
+
+### Quick Comparison
+
+#### NestJS Project Structure
+```
+src/
+├── app.module.ts
+├── app.controller.ts
+├── app.service.ts
+├── main.ts
+└── users/
+    ├── users.module.ts
+    ├── users.controller.ts
+    ├── users.service.ts
+    └── dto/
+        └── create-user.dto.ts
+```
+
+#### GIMBAP Project Structure
+```
+cmd/
+├── main.go
+internal/
+├── app/
+│   └── module.go
+├── users/
+│   ├── module.go
+│   ├── controller.go
+│   ├── service.go
+│   └── dto.go
+└── config/
+    └── config.go
+```
+
+## Step-by-Step Guides
+
+### 1. [Bootstrap and Basic Setup](./nestjs-to-gimbap/01-bootstrap)
+Learn how to convert a basic NestJS application bootstrap to GIMBAP, including:
+- Application initialization
+- Module setup
+- Basic dependency injection
+- Server configuration
+
+### 2. [CRUD REST API](./nestjs-to-gimbap/02-crud-api)
+Convert a complete CRUD REST API from NestJS to GIMBAP:
+- Controllers and routing
+- Services and repositories
+- DTOs and validation
+- Error handling
+
+### 3. [Authentication and Authorization](./nestjs-to-gimbap/03-auth)
+Implement authentication and authorization patterns:
+- JWT authentication
+- Guards and middleware
+- Role-based access control
+- Protected routes
+
+### 4. [Microservices and Background Tasks](./nestjs-to-gimbap/04-microservices)
+Port background services and scheduled tasks:
+- Background services
+- Cron jobs and scheduled tasks
+- Event-driven patterns
+- Queue processing
+
+### 5. [Advanced Patterns](./nestjs-to-gimbap/05-advanced)
+Advanced migration scenarios:
+- Custom providers
+- Dynamic modules
+- Interceptors and pipes
+- WebSocket support
+
+### 6. [Testing](./nestjs-to-gimbap/06-testing)
+Testing strategies for GIMBAP applications:
+- Unit testing
+- Integration testing
+- Mocking dependencies
+- Test utilities
+
+## Coming Soon
+
+The following features are planned for future releases:
+
+### GraphQL Support
+- GraphQL resolvers and schemas
+- Subscription support
+- DataLoader pattern
+
+### Database Integration
+- TypeORM → GORM/sqlx migration
+- Migration strategies
+- Transaction management
+
+### Message Queues
+- RabbitMQ/Redis integration
+- Event-driven microservices
+- CQRS pattern implementation
+
+### Monitoring and Observability
+- OpenTelemetry integration
+- Metrics and tracing
+- Health check patterns
+
+## Migration Checklist
+
+Use this checklist to ensure a smooth migration:
+
+- [ ] **Project Setup**
+  - [ ] Initialize Go module
+  - [ ] Set up project structure
+  - [ ] Configure build tools
+
+- [ ] **Core Components**
+  - [ ] Convert modules
+  - [ ] Port services
+  - [ ] Migrate controllers
+  - [ ] Set up dependency injection
+
+- [ ] **Features**
+  - [ ] HTTP endpoints
+  - [ ] Validation
+  - [ ] Error handling
+  - [ ] Middleware/Guards
+
+- [ ] **Testing**
+  - [ ] Unit tests
+  - [ ] Integration tests
+  - [ ] E2E tests
+
+- [ ] **Deployment**
+  - [ ] Docker configuration
+  - [ ] CI/CD pipeline
+  - [ ] Environment configuration
+
+## Need Help?
+
+- Check the [GIMBAP documentation](/gettingstarted/installation)
+- Review [example projects](/sampleprojects)
+- Join our community discussions
+
+---
+
+Ready to start porting? Begin with [Bootstrap and Basic Setup →](./nestjs-to-gimbap/01-bootstrap)

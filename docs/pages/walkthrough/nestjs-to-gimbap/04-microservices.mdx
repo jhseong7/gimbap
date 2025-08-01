@@ -1,0 +1,1304 @@
+# Step 4: Microservices and Background Tasks
+
+This guide demonstrates how to convert NestJS background services, scheduled tasks, and event-driven patterns to GIMBAP's microservice architecture.
+
+## Overview
+
+We'll cover:
+- Background services and lifecycle hooks
+- Scheduled tasks (cron jobs)
+- Event emitters and listeners
+- Queue processing
+- Health checks and monitoring
+
+## Background Services
+
+### NestJS Background Service
+
+```typescript
+// src/services/metrics.service.ts
+import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Interval } from '@nestjs/schedule';
+
+@Injectable()
+export class MetricsService implements OnModuleInit, OnModuleDestroy {
+  private metricsInterval: NodeJS.Timer;
+  private metrics = {
+    requestCount: 0,
+    errorCount: 0,
+    activeConnections: 0,
+  };
+
+  onModuleInit() {
+    console.log('MetricsService initialized');
+    this.startCollecting();
+  }
+
+  onModuleDestroy() {
+    console.log('MetricsService shutting down');
+    if (this.metricsInterval) {
+      clearInterval(this.metricsInterval);
+    }
+  }
+
+  private startCollecting() {
+    // Simulate metrics collection
+    this.metricsInterval = setInterval(() => {
+      this.collectMetrics();
+    }, 5000);
+  }
+
+  @Interval(10000) // Every 10 seconds
+  reportMetrics() {
+    console.log('Current metrics:', this.metrics);
+  }
+
+  private collectMetrics() {
+    // Simulate metric collection
+    this.metrics.requestCount += Math.floor(Math.random() * 10);
+    this.metrics.activeConnections = Math.floor(Math.random() * 50);
+  }
+
+  incrementRequestCount() {
+    this.metrics.requestCount++;
+  }
+
+  incrementErrorCount() {
+    this.metrics.errorCount++;
+  }
+
+  getMetrics() {
+    return { ...this.metrics };
+  }
+}
+```
+
+### GIMBAP Background Service
+
+```go
+// internal/services/metrics.go
+package services
+
+import (
+    "fmt"
+    "log"
+    "math/rand"
+    "sync"
+    "time"
+    
+    "github.com/jhseong7/gimbap"
+    "github.com/jhseong7/gimbap/microservice"
+)
+
+type Metrics struct {
+    RequestCount      int `json:"requestCount"`
+    ErrorCount        int `json:"errorCount"`
+    ActiveConnections int `json:"activeConnections"`
+}
+
+type MetricsService struct {
+    microservice.IMicroService
+    mu             sync.RWMutex
+    metrics        Metrics
+    collectTicker  *time.Ticker
+    reportTicker   *time.Ticker
+    stopChan       chan bool
+}
+
+func NewMetricsService() *MetricsService {
+    return &MetricsService{
+        metrics:  Metrics{},
+        stopChan: make(chan bool),
+    }
+}
+
+// Start is called when the app starts
+func (s *MetricsService) Start() {
+    log.Println("MetricsService initialized")
+    
+    // Start collecting metrics every 5 seconds
+    s.collectTicker = time.NewTicker(5 * time.Second)
+    go s.collectMetricsLoop()
+    
+    // Report metrics every 10 seconds
+    s.reportTicker = time.NewTicker(10 * time.Second)
+    go s.reportMetricsLoop()
+}
+
+// Stop is called on app shutdown
+func (s *MetricsService) Stop() {
+    log.Println("MetricsService shutting down")
+    
+    // Stop tickers
+    if s.collectTicker != nil {
+        s.collectTicker.Stop()
+    }
+    if s.reportTicker != nil {
+        s.reportTicker.Stop()
+    }
+    
+    // Signal goroutines to stop
+    close(s.stopChan)
+}
+
+func (s *MetricsService) collectMetricsLoop() {
+    for {
+        select {
+        case <-s.collectTicker.C:
+            s.collectMetrics()
+        case <-s.stopChan:
+            return
+        }
+    }
+}
+
+func (s *MetricsService) reportMetricsLoop() {
+    for {
+        select {
+        case <-s.reportTicker.C:
+            s.reportMetrics()
+        case <-s.stopChan:
+            return
+        }
+    }
+}
+
+func (s *MetricsService) collectMetrics() {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    
+    // Simulate metric collection
+    s.metrics.RequestCount += rand.Intn(10)
+    s.metrics.ActiveConnections = rand.Intn(50)
+}
+
+func (s *MetricsService) reportMetrics() {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    
+    log.Printf("Current metrics: %+v", s.metrics)
+}
+
+func (s *MetricsService) IncrementRequestCount() {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    s.metrics.RequestCount++
+}
+
+func (s *MetricsService) IncrementErrorCount() {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    s.metrics.ErrorCount++
+}
+
+func (s *MetricsService) GetMetrics() Metrics {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    
+    // Return a copy
+    return Metrics{
+        RequestCount:      s.metrics.RequestCount,
+        ErrorCount:        s.metrics.ErrorCount,
+        ActiveConnections: s.metrics.ActiveConnections,
+    }
+}
+
+// Register as microservice
+var MetricsServiceProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "MetricsService",
+        Instantiator: NewMetricsService,
+    },
+)
+```
+
+## Scheduled Tasks (Cron Jobs)
+
+### NestJS Scheduled Tasks
+
+```typescript
+// src/tasks/cleanup.service.ts
+import { Injectable } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Session } from '../entities/session.entity';
+
+@Injectable()
+export class CleanupService {
+  constructor(
+    @InjectRepository(Session)
+    private sessionRepository: Repository<Session>,
+  ) {}
+
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async cleanExpiredSessions() {
+    console.log('Running session cleanup...');
+    
+    const result = await this.sessionRepository
+      .createQueryBuilder()
+      .delete()
+      .where('expiresAt < :now', { now: new Date() })
+      .execute();
+    
+    console.log(`Cleaned up ${result.affected} expired sessions`);
+  }
+
+  @Cron('0 */6 * * *') // Every 6 hours
+  async cleanTempFiles() {
+    console.log('Cleaning temporary files...');
+    // Implementation
+  }
+
+  @Cron('0 0 * * 0') // Every Sunday at midnight
+  async generateWeeklyReport() {
+    console.log('Generating weekly report...');
+    // Implementation
+  }
+}
+```
+
+### GIMBAP Scheduled Tasks
+
+```go
+// internal/tasks/cleanup.go
+package tasks
+
+import (
+    "log"
+    "time"
+    
+    "github.com/jhseong7/gimbap"
+    "github.com/jhseong7/gimbap/microservice"
+    "github.com/robfig/cron/v3"
+    "myapp/internal/database"
+)
+
+type CleanupService struct {
+    microservice.IMicroService
+    cron     *cron.Cron
+    db       *database.DatabaseService
+    logger   *log.Logger
+}
+
+func NewCleanupService(db *database.DatabaseService) *CleanupService {
+    return &CleanupService{
+        cron:   cron.New(cron.WithSeconds()),
+        db:     db,
+        logger: log.New(log.Writer(), "[CleanupService] ", log.LstdFlags),
+    }
+}
+
+func (s *CleanupService) Start() {
+    s.logger.Println("CleanupService started")
+    
+    // Schedule tasks
+    // Every day at midnight
+    s.cron.AddFunc("0 0 0 * * *", s.cleanExpiredSessions)
+    
+    // Every 6 hours
+    s.cron.AddFunc("0 0 */6 * * *", s.cleanTempFiles)
+    
+    // Every Sunday at midnight
+    s.cron.AddFunc("0 0 0 * * 0", s.generateWeeklyReport)
+    
+    // Start the cron scheduler
+    s.cron.Start()
+}
+
+func (s *CleanupService) Stop() {
+    s.logger.Println("CleanupService stopping")
+    s.cron.Stop()
+}
+
+func (s *CleanupService) cleanExpiredSessions() {
+    s.logger.Println("Running session cleanup...")
+    
+    result, err := s.db.Execute(
+        "DELETE FROM sessions WHERE expires_at < ?",
+        time.Now(),
+    )
+    if err != nil {
+        s.logger.Printf("Error cleaning sessions: %v", err)
+        return
+    }
+    
+    affected, _ := result.RowsAffected()
+    s.logger.Printf("Cleaned up %d expired sessions", affected)
+}
+
+func (s *CleanupService) cleanTempFiles() {
+    s.logger.Println("Cleaning temporary files...")
+    // Implementation
+}
+
+func (s *CleanupService) generateWeeklyReport() {
+    s.logger.Println("Generating weekly report...")
+    // Implementation
+}
+
+var CleanupServiceProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "CleanupService",
+        Instantiator: NewCleanupService,
+    },
+)
+```
+
+## Event-Driven Architecture
+
+### NestJS Event Emitter
+
+```typescript
+// src/events/order.events.ts
+export class OrderCreatedEvent {
+  constructor(
+    public readonly orderId: string,
+    public readonly userId: string,
+    public readonly amount: number,
+  ) {}
+}
+
+// src/services/order.service.ts
+import { Injectable } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { OrderCreatedEvent } from '../events/order.events';
+
+@Injectable()
+export class OrderService {
+  constructor(private eventEmitter: EventEmitter2) {}
+
+  async createOrder(userId: string, items: any[]) {
+    // Create order logic
+    const order = {
+      id: 'order-123',
+      userId,
+      amount: 100,
+      items,
+    };
+
+    // Emit event
+    this.eventEmitter.emit(
+      'order.created',
+      new OrderCreatedEvent(order.id, order.userId, order.amount),
+    );
+
+    return order;
+  }
+}
+
+// src/listeners/email.listener.ts
+import { Injectable } from '@nestjs/common';
+import { OnEvent } from '@nestjs/event-emitter';
+import { OrderCreatedEvent } from '../events/order.events';
+
+@Injectable()
+export class EmailListener {
+  @OnEvent('order.created')
+  async handleOrderCreatedEvent(event: OrderCreatedEvent) {
+    console.log('Sending order confirmation email...');
+    // Send email logic
+  }
+
+  @OnEvent('order.created', { async: true })
+  async updateInventory(event: OrderCreatedEvent) {
+    console.log('Updating inventory...');
+    // Update inventory logic
+  }
+}
+```
+
+### GIMBAP Event System
+
+```go
+// internal/events/events.go
+package events
+
+import (
+    "sync"
+)
+
+type Event interface {
+    GetName() string
+}
+
+type OrderCreatedEvent struct {
+    OrderID string
+    UserID  string
+    Amount  float64
+}
+
+func (e OrderCreatedEvent) GetName() string {
+    return "order.created"
+}
+
+// EventBus handles event publishing and subscription
+type EventBus struct {
+    mu        sync.RWMutex
+    listeners map[string][]EventHandler
+}
+
+type EventHandler func(event Event)
+
+func NewEventBus() *EventBus {
+    return &EventBus{
+        listeners: make(map[string][]EventHandler),
+    }
+}
+
+func (eb *EventBus) Subscribe(eventName string, handler EventHandler) {
+    eb.mu.Lock()
+    defer eb.mu.Unlock()
+    
+    eb.listeners[eventName] = append(eb.listeners[eventName], handler)
+}
+
+func (eb *EventBus) Emit(event Event) {
+    eb.mu.RLock()
+    handlers := eb.listeners[event.GetName()]
+    eb.mu.RUnlock()
+    
+    // Execute handlers asynchronously
+    for _, handler := range handlers {
+        go handler(event)
+    }
+}
+
+// internal/services/order.go
+package services
+
+import (
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/events"
+)
+
+type OrderService struct {
+    eventBus *events.EventBus
+}
+
+func NewOrderService(eventBus *events.EventBus) *OrderService {
+    return &OrderService{
+        eventBus: eventBus,
+    }
+}
+
+func (s *OrderService) CreateOrder(userID string, items []interface{}) map[string]interface{} {
+    // Create order logic
+    order := map[string]interface{}{
+        "id":     "order-123",
+        "userId": userID,
+        "amount": 100.0,
+        "items":  items,
+    }
+    
+    // Emit event
+    s.eventBus.Emit(events.OrderCreatedEvent{
+        OrderID: order["id"].(string),
+        UserID:  userID,
+        Amount:  order["amount"].(float64),
+    })
+    
+    return order
+}
+
+var OrderServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "OrderService",
+    Instantiator: NewOrderService,
+})
+
+// internal/listeners/email.go
+package listeners
+
+import (
+    "log"
+    "github.com/jhseong7/gimbap/microservice"
+    "myapp/internal/events"
+)
+
+type EmailListener struct {
+    microservice.IMicroService
+    eventBus *events.EventBus
+    logger   *log.Logger
+}
+
+func NewEmailListener(eventBus *events.EventBus) *EmailListener {
+    return &EmailListener{
+        eventBus: eventBus,
+        logger:   log.New(log.Writer(), "[EmailListener] ", log.LstdFlags),
+    }
+}
+
+func (l *EmailListener) Start() {
+    // Subscribe to events
+    l.eventBus.Subscribe("order.created", l.handleOrderCreated)
+    l.logger.Println("EmailListener started")
+}
+
+func (l *EmailListener) Stop() {
+    l.logger.Println("EmailListener stopped")
+}
+
+func (l *EmailListener) handleOrderCreated(event events.Event) {
+    orderEvent, ok := event.(events.OrderCreatedEvent)
+    if !ok {
+        return
+    }
+    
+    l.logger.Printf("Sending order confirmation email for order %s", orderEvent.OrderID)
+    // Send email logic
+}
+
+var EmailListenerProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "EmailListener",
+        Instantiator: NewEmailListener,
+    },
+)
+```
+
+## Queue Processing
+
+### NestJS Bull Queue
+
+```typescript
+// src/queues/email.processor.ts
+import { Process, Processor } from '@nestjs/bull';
+import { Job } from 'bull';
+
+interface EmailJob {
+  to: string;
+  subject: string;
+  body: string;
+}
+
+@Processor('email')
+export class EmailProcessor {
+  @Process()
+  async sendEmail(job: Job<EmailJob>) {
+    console.log(`Processing email job ${job.id}`);
+    const { to, subject, body } = job.data;
+    
+    // Simulate email sending
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    console.log(`Email sent to ${to}: ${subject}`);
+    return { success: true, messageId: `msg-${job.id}` };
+  }
+
+  @Process('welcome')
+  async sendWelcomeEmail(job: Job<{ userId: string; email: string }>) {
+    console.log(`Sending welcome email to ${job.data.email}`);
+    // Send welcome email
+  }
+}
+
+// src/services/notification.service.ts
+import { Injectable } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bull';
+import { Queue } from 'bull';
+
+@Injectable()
+export class NotificationService {
+  constructor(@InjectQueue('email') private emailQueue: Queue) {}
+
+  async queueEmail(to: string, subject: string, body: string) {
+    const job = await this.emailQueue.add({
+      to,
+      subject,
+      body,
+    });
+    
+    return { jobId: job.id };
+  }
+
+  async queueWelcomeEmail(userId: string, email: string) {
+    const job = await this.emailQueue.add('welcome', {
+      userId,
+      email,
+    });
+    
+    return { jobId: job.id };
+  }
+}
+```
+
+### GIMBAP Queue Processing
+
+```go
+// internal/queues/queue.go
+package queues
+
+import (
+    "encoding/json"
+    "sync"
+)
+
+type Job struct {
+    ID   string
+    Type string
+    Data json.RawMessage
+}
+
+type Queue struct {
+    mu       sync.Mutex
+    jobs     []Job
+    handlers map[string]JobHandler
+    stopChan chan bool
+    wg       sync.WaitGroup
+}
+
+type JobHandler func(job Job) error
+
+func NewQueue() *Queue {
+    return &Queue{
+        jobs:     make([]Job, 0),
+        handlers: make(map[string]JobHandler),
+        stopChan: make(chan bool),
+    }
+}
+
+func (q *Queue) RegisterHandler(jobType string, handler JobHandler) {
+    q.handlers[jobType] = handler
+}
+
+func (q *Queue) Add(jobType string, data interface{}) (string, error) {
+    q.mu.Lock()
+    defer q.mu.Unlock()
+    
+    dataBytes, err := json.Marshal(data)
+    if err != nil {
+        return "", err
+    }
+    
+    job := Job{
+        ID:   fmt.Sprintf("job-%d", time.Now().UnixNano()),
+        Type: jobType,
+        Data: dataBytes,
+    }
+    
+    q.jobs = append(q.jobs, job)
+    return job.ID, nil
+}
+
+func (q *Queue) Start(workers int) {
+    for i := 0; i < workers; i++ {
+        q.wg.Add(1)
+        go q.worker()
+    }
+}
+
+func (q *Queue) Stop() {
+    close(q.stopChan)
+    q.wg.Wait()
+}
+
+func (q *Queue) worker() {
+    defer q.wg.Done()
+    
+    ticker := time.NewTicker(100 * time.Millisecond)
+    defer ticker.Stop()
+    
+    for {
+        select {
+        case <-q.stopChan:
+            return
+        case <-ticker.C:
+            q.processNextJob()
+        }
+    }
+}
+
+func (q *Queue) processNextJob() {
+    q.mu.Lock()
+    if len(q.jobs) == 0 {
+        q.mu.Unlock()
+        return
+    }
+    
+    job := q.jobs[0]
+    q.jobs = q.jobs[1:]
+    q.mu.Unlock()
+    
+    handler, exists := q.handlers[job.Type]
+    if !exists {
+        log.Printf("No handler for job type: %s", job.Type)
+        return
+    }
+    
+    if err := handler(job); err != nil {
+        log.Printf("Error processing job %s: %v", job.ID, err)
+    }
+}
+
+// internal/queues/email_processor.go
+package queues
+
+import (
+    "encoding/json"
+    "log"
+    "time"
+    
+    "github.com/jhseong7/gimbap/microservice"
+)
+
+type EmailJob struct {
+    To      string `json:"to"`
+    Subject string `json:"subject"`
+    Body    string `json:"body"`
+}
+
+type WelcomeEmailJob struct {
+    UserID string `json:"userId"`
+    Email  string `json:"email"`
+}
+
+type EmailProcessor struct {
+    microservice.IMicroService
+    queue  *Queue
+    logger *log.Logger
+}
+
+func NewEmailProcessor(queue *Queue) *EmailProcessor {
+    return &EmailProcessor{
+        queue:  queue,
+        logger: log.New(log.Writer(), "[EmailProcessor] ", log.LstdFlags),
+    }
+}
+
+func (p *EmailProcessor) Start() {
+    // Register handlers
+    p.queue.RegisterHandler("email", p.sendEmail)
+    p.queue.RegisterHandler("welcome", p.sendWelcomeEmail)
+    
+    // Start queue workers
+    p.queue.Start(3) // 3 workers
+    
+    p.logger.Println("EmailProcessor started")
+}
+
+func (p *EmailProcessor) Stop() {
+    p.queue.Stop()
+    p.logger.Println("EmailProcessor stopped")
+}
+
+func (p *EmailProcessor) sendEmail(job Job) error {
+    var emailJob EmailJob
+    if err := json.Unmarshal(job.Data, &emailJob); err != nil {
+        return err
+    }
+    
+    p.logger.Printf("Processing email job %s", job.ID)
+    
+    // Simulate email sending
+    time.Sleep(1 * time.Second)
+    
+    p.logger.Printf("Email sent to %s: %s", emailJob.To, emailJob.Subject)
+    return nil
+}
+
+func (p *EmailProcessor) sendWelcomeEmail(job Job) error {
+    var welcomeJob WelcomeEmailJob
+    if err := json.Unmarshal(job.Data, &welcomeJob); err != nil {
+        return err
+    }
+    
+    p.logger.Printf("Sending welcome email to %s", welcomeJob.Email)
+    // Send welcome email logic
+    
+    return nil
+}
+
+var EmailProcessorProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "EmailProcessor",
+        Instantiator: NewEmailProcessor,
+    },
+)
+
+// internal/services/notification.go
+package services
+
+import (
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/queues"
+)
+
+type NotificationService struct {
+    queue *queues.Queue
+}
+
+func NewNotificationService(queue *queues.Queue) *NotificationService {
+    return &NotificationService{
+        queue: queue,
+    }
+}
+
+func (s *NotificationService) QueueEmail(to, subject, body string) (string, error) {
+    jobID, err := s.queue.Add("email", queues.EmailJob{
+        To:      to,
+        Subject: subject,
+        Body:    body,
+    })
+    
+    if err != nil {
+        return "", err
+    }
+    
+    return jobID, nil
+}
+
+func (s *NotificationService) QueueWelcomeEmail(userID, email string) (string, error) {
+    jobID, err := s.queue.Add("welcome", queues.WelcomeEmailJob{
+        UserID: userID,
+        Email:  email,
+    })
+    
+    if err != nil {
+        return "", err
+    }
+    
+    return jobID, nil
+}
+
+var NotificationServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "NotificationService",
+    Instantiator: NewNotificationService,
+})
+```
+
+## Health Checks and Monitoring
+
+### NestJS Health Check
+
+```typescript
+// src/health/health.controller.ts
+import { Controller, Get } from '@nestjs/common';
+import {
+  HealthCheckService,
+  HttpHealthIndicator,
+  HealthCheck,
+  TypeOrmHealthIndicator,
+  MemoryHealthIndicator,
+  DiskHealthIndicator,
+} from '@nestjs/terminus';
+
+@Controller('health')
+export class HealthController {
+  constructor(
+    private health: HealthCheckService,
+    private http: HttpHealthIndicator,
+    private db: TypeOrmHealthIndicator,
+    private memory: MemoryHealthIndicator,
+    private disk: DiskHealthIndicator,
+  ) {}
+
+  @Get()
+  @HealthCheck()
+  check() {
+    return this.health.check([
+      () => this.db.pingCheck('database'),
+      () => this.http.pingCheck('api', 'https://api.example.com'),
+      () => this.memory.checkHeap('memory_heap', 150 * 1024 * 1024), // 150MB
+      () => this.memory.checkRSS('memory_rss', 150 * 1024 * 1024),
+      () => this.disk.checkStorage('storage', { path: '/', threshold: 0.9 }),
+    ]);
+  }
+
+  @Get('ready')
+  @HealthCheck()
+  readiness() {
+    return this.health.check([
+      () => this.db.pingCheck('database'),
+    ]);
+  }
+
+  @Get('live')
+  liveness() {
+    return { status: 'ok' };
+  }
+}
+```
+
+### GIMBAP Health Check
+
+```go
+// internal/health/service.go
+package health
+
+import (
+    "net/http"
+    "os"
+    "runtime"
+    "syscall"
+    "time"
+    
+    "github.com/jhseong7/gimbap"
+)
+
+type HealthStatus string
+
+const (
+    StatusUp   HealthStatus = "up"
+    StatusDown HealthStatus = "down"
+)
+
+type HealthCheck struct {
+    Name   string
+    Status HealthStatus
+    Data   map[string]interface{}
+    Error  string
+}
+
+type HealthResult struct {
+    Status string                 `json:"status"`
+    Info   map[string]interface{} `json:"info"`
+    Error  map[string]interface{} `json:"error,omitempty"`
+    Details map[string]HealthCheck `json:"details"`
+}
+
+type HealthService struct {
+    db         DatabaseChecker
+    httpClient *http.Client
+}
+
+type DatabaseChecker interface {
+    Ping() error
+}
+
+func NewHealthService(db DatabaseChecker) *HealthService {
+    return &HealthService{
+        db: db,
+        httpClient: &http.Client{
+            Timeout: 5 * time.Second,
+        },
+    }
+}
+
+func (s *HealthService) Check() HealthResult {
+    checks := []HealthCheck{
+        s.checkDatabase(),
+        s.checkAPI(),
+        s.checkMemory(),
+        s.checkDisk(),
+    }
+    
+    result := HealthResult{
+        Status:  "ok",
+        Info:    make(map[string]interface{}),
+        Error:   make(map[string]interface{}),
+        Details: make(map[string]HealthCheck),
+    }
+    
+    for _, check := range checks {
+        result.Details[check.Name] = check
+        
+        if check.Status == StatusDown {
+            result.Status = "error"
+            result.Error[check.Name] = map[string]interface{}{
+                "status": check.Status,
+                "error":  check.Error,
+            }
+        } else {
+            result.Info[check.Name] = map[string]interface{}{
+                "status": check.Status,
+                "data":   check.Data,
+            }
+        }
+    }
+    
+    return result
+}
+
+func (s *HealthService) checkDatabase() HealthCheck {
+    check := HealthCheck{
+        Name:   "database",
+        Status: StatusUp,
+        Data:   make(map[string]interface{}),
+    }
+    
+    if err := s.db.Ping(); err != nil {
+        check.Status = StatusDown
+        check.Error = err.Error()
+    }
+    
+    return check
+}
+
+func (s *HealthService) checkAPI() HealthCheck {
+    check := HealthCheck{
+        Name:   "external_api",
+        Status: StatusUp,
+        Data:   make(map[string]interface{}),
+    }
+    
+    resp, err := s.httpClient.Get("https://api.example.com/health")
+    if err != nil {
+        check.Status = StatusDown
+        check.Error = err.Error()
+        return check
+    }
+    defer resp.Body.Close()
+    
+    if resp.StatusCode != http.StatusOK {
+        check.Status = StatusDown
+        check.Error = fmt.Sprintf("API returned status %d", resp.StatusCode)
+    }
+    
+    return check
+}
+
+func (s *HealthService) checkMemory() HealthCheck {
+    var m runtime.MemStats
+    runtime.ReadMemStats(&m)
+    
+    check := HealthCheck{
+        Name:   "memory",
+        Status: StatusUp,
+        Data: map[string]interface{}{
+            "heap_alloc_mb": m.Alloc / 1024 / 1024,
+            "heap_sys_mb":   m.HeapSys / 1024 / 1024,
+            "gc_count":      m.NumGC,
+        },
+    }
+    
+    // Check if heap allocation exceeds 150MB
+    if m.Alloc > 150*1024*1024 {
+        check.Status = StatusDown
+        check.Error = "Memory usage exceeds threshold"
+    }
+    
+    return check
+}
+
+func (s *HealthService) checkDisk() HealthCheck {
+    check := HealthCheck{
+        Name:   "disk",
+        Status: StatusUp,
+        Data:   make(map[string]interface{}),
+    }
+    
+    var stat syscall.Statfs_t
+    if err := syscall.Statfs("/", &stat); err != nil {
+        check.Status = StatusDown
+        check.Error = err.Error()
+        return check
+    }
+    
+    total := stat.Blocks * uint64(stat.Bsize)
+    free := stat.Bavail * uint64(stat.Bsize)
+    used := total - free
+    usagePercent := float64(used) / float64(total)
+    
+    check.Data = map[string]interface{}{
+        "total_gb":      total / 1024 / 1024 / 1024,
+        "free_gb":       free / 1024 / 1024 / 1024,
+        "used_percent":  usagePercent * 100,
+    }
+    
+    // Check if disk usage exceeds 90%
+    if usagePercent > 0.9 {
+        check.Status = StatusDown
+        check.Error = "Disk usage exceeds 90%"
+    }
+    
+    return check
+}
+
+var HealthServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "HealthService",
+    Instantiator: NewHealthService,
+})
+
+// internal/health/controller.go
+package health
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+type HealthController struct {
+    gimbap.IController
+    healthService *HealthService
+}
+
+func NewHealthController(healthService *HealthService) *HealthController {
+    return &HealthController{
+        healthService: healthService,
+    }
+}
+
+func (c *HealthController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/",
+            Handler: c.Check,
+        },
+        {
+            Method:  "GET",
+            Path:    "/ready",
+            Handler: c.Readiness,
+        },
+        {
+            Method:  "GET",
+            Path:    "/live",
+            Handler: c.Liveness,
+        },
+    }
+}
+
+func (c *HealthController) Check(ctx *gin.Context) {
+    result := c.healthService.Check()
+    
+    statusCode := http.StatusOK
+    if result.Status != "ok" {
+        statusCode = http.StatusServiceUnavailable
+    }
+    
+    ctx.JSON(statusCode, result)
+}
+
+func (c *HealthController) Readiness(ctx *gin.Context) {
+    // Simple database check for readiness
+    check := c.healthService.checkDatabase()
+    
+    if check.Status == StatusDown {
+        ctx.JSON(http.StatusServiceUnavailable, gin.H{
+            "status": "not ready",
+            "error":  check.Error,
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, gin.H{
+        "status": "ready",
+    })
+}
+
+func (c *HealthController) Liveness(ctx *gin.Context) {
+    ctx.JSON(http.StatusOK, gin.H{
+        "status": "ok",
+    })
+}
+
+var HealthControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "HealthController",
+    Instantiator: NewHealthController,
+    RootPath:     "health",
+})
+```
+
+## Module Setup
+
+```go
+// internal/microservices/module.go
+package microservices
+
+import (
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/events"
+    "myapp/internal/health"
+    "myapp/internal/listeners"
+    "myapp/internal/queues"
+    "myapp/internal/services"
+    "myapp/internal/tasks"
+)
+
+// Shared providers
+var EventBusProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "EventBus",
+    Instantiator: events.NewEventBus,
+})
+
+var QueueProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "Queue",
+    Instantiator: queues.NewQueue,
+})
+
+var MicroservicesModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "MicroservicesModule",
+    Controllers: []*gimbap.Controller{
+        health.HealthControllerProvider,
+    },
+    Providers: []*gimbap.Provider{
+        EventBusProvider,
+        QueueProvider,
+        health.HealthServiceProvider,
+        services.OrderServiceProvider,
+        services.NotificationServiceProvider,
+    },
+    MicroServices: []*microservice.MicroService{
+        services.MetricsServiceProvider,
+        tasks.CleanupServiceProvider,
+        listeners.EmailListenerProvider,
+        queues.EmailProcessorProvider,
+    },
+})
+```
+
+## Registering Microservices in Main
+
+```go
+// cmd/main.go
+func main() {
+    app := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "MyApp",
+        AppModule:    app.AppModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+    
+    // Microservices are automatically started when included in modules
+    // They will be gracefully stopped on app shutdown
+    
+    // Handle graceful shutdown
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+    
+    go func() {
+        <-sigChan
+        log.Println("Shutting down gracefully...")
+        app.Stop() // This will call Stop() on all microservices
+    }()
+    
+    app.Run()
+}
+```
+
+## Best Practices
+
+1. **Lifecycle Management**
+   - Always implement proper Start() and Stop() methods
+   - Clean up resources (tickers, channels, connections)
+   - Use context for cancellation
+
+2. **Concurrency**
+   - Use sync.Mutex for shared state
+   - Prefer channels for communication
+   - Avoid goroutine leaks
+
+3. **Error Handling**
+   - Log errors appropriately
+   - Implement retry logic for critical tasks
+   - Use circuit breakers for external services
+
+4. **Monitoring**
+   - Implement comprehensive health checks
+   - Export metrics for monitoring
+   - Log important events
+
+## Summary
+
+Key differences when implementing microservices:
+1. **Lifecycle Hooks**: Explicit Start/Stop methods vs decorators
+2. **Scheduling**: External cron library vs built-in decorators
+3. **Events**: Manual event bus vs built-in EventEmitter
+4. **Queues**: Custom implementation vs Bull/BullMQ
+
+## Next Steps
+
+- [Advanced Patterns →](./05-advanced)
+- [Testing →](./06-testing)
+- [Back to Overview ←](../nestjs-to-gimbap)

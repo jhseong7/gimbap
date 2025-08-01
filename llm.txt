@@ -1,0 +1,3305 @@
+# GIMBAP Framework Guide for Software Engineers
+
+## Overview
+
+GIMBAP (Go Injection Management for Better Application Programming) is a Go web framework that brings Spring Boot and NestJS-like dependency injection patterns to Go. It provides automatic dependency injection, modular architecture, and flexible HTTP server engine support.
+
+## Important Guidelines for Working with GIMBAP
+
+### 1. Always Use Mermaid Diagrams
+When explaining GIMBAP concepts, **eagerly create Mermaid diagrams** to visualize:
+- Module dependency graphs
+- Provider relationships
+- Application architecture
+- Request flow through controllers
+
+### 2. Always Check Go Types Carefully
+**Critical**: Go's type system differs from Java/TypeScript. Always verify:
+- Pointer types (`*Type`) vs value types (`Type`)
+- Interface satisfaction
+- Constructor return types must match provider expectations
+- Method receivers (pointer vs value)
+
+### 3. Provide Extensive Code Examples
+Never explain concepts without accompanying code snippets. Show complete, working examples.
+
+## Core Concepts Comparison
+
+### Spring Boot / NestJS → GIMBAP Mapping
+
+| Spring Boot | NestJS | GIMBAP | Description |
+|-------------|---------|---------|-------------|
+| `@Component/@Service` | `@Injectable()` | `Provider` | Injectable service/component |
+| `@RestController` | `@Controller()` | `Controller` | HTTP endpoint handler |
+| `@Configuration` | `@Module()` | `Module` | Dependency container |
+| `@Autowired` | Constructor injection | Constructor params | Dependency injection |
+| `@SpringBootApplication` | `NestFactory.create()` | `gimbap.CreateApp()` | Application bootstrap |
+| `@Bean` | Provider definition | `DefineProvider()` | Bean/provider definition |
+| `@RequestMapping` | `@Get()/@Post()` | `GetRouteSpecs()` | Route definition |
+
+## Architecture Visualization
+
+```mermaid
+flowchart TD
+    subgraph "Application Container"
+        App[GIMBAP App]
+        SE[Server Engine<br/>Gin/Fiber/Echo]
+        DM[Dependency Manager]
+    end
+    
+    subgraph "Module System"
+        RM[Root Module]
+        M1[Module 1]
+        M2[Module 2]
+    end
+    
+    subgraph "Providers"
+        S1[Service 1]
+        S2[Service 2]
+        C1[Controller 1]
+        C2[Controller 2]
+    end
+    
+    RM --> App
+    M1 --> RM
+    M2 --> RM
+    S1 --> M1
+    C1 --> M1
+    S2 --> M2
+    C2 --> M2
+    
+    App --> SE
+    App --> DM
+    DM -.->|Injects| S1
+    DM -.->|Injects| S2
+    DM -.->|Injects| C1
+    DM -.->|Injects| C2
+```
+
+## 1. Providers (Services)
+
+### Spring Boot Example
+```java
+@Service
+public class UserService {
+    private final DatabaseService dbService;
+    
+    @Autowired
+    public UserService(DatabaseService dbService) {
+        this.dbService = dbService;
+    }
+    
+    public User getUser(Long id) {
+        return dbService.findById(id);
+    }
+}
+```
+
+### NestJS Example
+```typescript
+@Injectable()
+export class UserService {
+    constructor(private readonly dbService: DatabaseService) {}
+    
+    async getUser(id: number): Promise<User> {
+        return this.dbService.findById(id);
+    }
+}
+```
+
+### GIMBAP Example
+```go
+package user
+
+import "github.com/jhseong7/gimbap"
+
+// Define the service struct
+type UserService struct {
+    dbService *DatabaseService  // Note: Pointer type!
+}
+
+// Constructor function - parameters are injected automatically
+func NewUserService(dbService *DatabaseService) *UserService {
+    return &UserService{
+        dbService: dbService,
+    }
+}
+
+// Service methods
+func (s *UserService) GetUser(id int64) (*User, error) {
+    return s.dbService.FindById(id)
+}
+
+// Define the provider
+var UserServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "UserService",
+    Instantiator: NewUserService,  // Pass the constructor function
+})
+```
+
+### Dependency Flow Visualization
+```mermaid
+graph LR
+    UC[UserController] -->|depends on| US[UserService]
+    US -->|depends on| DS[DatabaseService]
+    DS -->|depends on| DB[(Database)]
+    
+    style UC fill:#f9f,stroke:#333,stroke-width:2px
+    style US fill:#bbf,stroke:#333,stroke-width:2px
+    style DS fill:#bfb,stroke:#333,stroke-width:2px
+```
+
+## 2. Controllers
+
+### Spring Boot Example
+```java
+@RestController
+@RequestMapping("/users")
+public class UserController {
+    @Autowired
+    private UserService userService;
+    
+    @GetMapping("/{id}")
+    public User getUser(@PathVariable Long id) {
+        return userService.getUser(id);
+    }
+    
+    @PostMapping
+    public User createUser(@RequestBody User user) {
+        return userService.createUser(user);
+    }
+}
+```
+
+### NestJS Example
+```typescript
+@Controller('users')
+export class UserController {
+    constructor(private readonly userService: UserService) {}
+    
+    @Get(':id')
+    async getUser(@Param('id') id: string): Promise<User> {
+        return this.userService.getUser(+id);
+    }
+    
+    @Post()
+    async createUser(@Body() user: User): Promise<User> {
+        return this.userService.createUser(user);
+    }
+}
+```
+
+### GIMBAP Example (Gin Engine)
+```go
+package user
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+// Controller struct implementing IController interface
+type UserController struct {
+    gimbap.IController
+    userService *UserService  // Injected dependency
+}
+
+// Constructor for dependency injection
+func NewUserController(userService *UserService) *UserController {
+    return &UserController{
+        userService: userService,
+    }
+}
+
+// IMPORTANT: This method defines all routes for the controller
+func (c *UserController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {Method: "GET", Path: "/:id", Handler: c.GetUser},
+        {Method: "POST", Path: "/", Handler: c.CreateUser},
+    }
+}
+
+// Handler methods - Note: Gin-specific context type
+func (c *UserController) GetUser(ctx *gin.Context) {
+    id := ctx.Param("id")
+    user, err := c.userService.GetUser(id)
+    if err != nil {
+        ctx.JSON(500, gin.H{"error": err.Error()})
+        return
+    }
+    ctx.JSON(200, user)
+}
+
+func (c *UserController) CreateUser(ctx *gin.Context) {
+    var user User
+    if err := ctx.ShouldBindJSON(&user); err != nil {
+        ctx.JSON(400, gin.H{"error": err.Error()})
+        return
+    }
+    created, err := c.userService.CreateUser(&user)
+    if err != nil {
+        ctx.JSON(500, gin.H{"error": err.Error()})
+        return
+    }
+    ctx.JSON(201, created)
+}
+
+// Define the controller provider
+var UserControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "UserController",
+    Instantiator: NewUserController,
+    RootPath:     "users",  // Base path for all routes
+})
+```
+
+### Multi-Engine Support
+GIMBAP supports multiple HTTP engines. Here's the same controller for Fiber:
+
+```go
+// Fiber version - Note the different context type and error returns
+func (c *UserController) GetUserFiber(ctx *fiber.Ctx) error {
+    id := ctx.Params("id")
+    user, err := c.userService.GetUser(id)
+    if err != nil {
+        return ctx.Status(500).JSON(fiber.Map{"error": err.Error()})
+    }
+    return ctx.JSON(user)
+}
+```
+
+## 3. Modules
+
+### Spring Boot Example
+```java
+@Configuration
+@ComponentScan(basePackages = "com.example.user")
+public class UserModule {
+    @Bean
+    public UserRepository userRepository() {
+        return new UserRepositoryImpl();
+    }
+}
+```
+
+### NestJS Example
+```typescript
+@Module({
+    imports: [DatabaseModule],
+    controllers: [UserController],
+    providers: [UserService, UserRepository],
+    exports: [UserService]
+})
+export class UserModule {}
+```
+
+### GIMBAP Example
+```go
+package user
+
+import "github.com/jhseong7/gimbap"
+
+// Define a module that groups related providers and controllers
+var UserModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "UserModule",
+    Providers: []*gimbap.Provider{
+        UserServiceProvider,
+        UserRepositoryProvider,
+    },
+    Controllers: []*gimbap.Controller{
+        UserControllerProvider,
+    },
+})
+
+// Modules can depend on other modules
+var AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "AppModule",
+    SubModules: []*gimbap.Module{
+        UserModule,
+        DatabaseModule,
+        AuthModule,
+    },
+})
+```
+
+### Module Dependency Graph
+```mermaid
+graph TD
+    AppModule[App Module<br/>Root]
+    UserModule[User Module]
+    AuthModule[Auth Module]
+    DatabaseModule[Database Module]
+    
+    AppModule --> UserModule
+    AppModule --> AuthModule
+    AppModule --> DatabaseModule
+    
+    UserModule --> DatabaseModule
+    AuthModule --> DatabaseModule
+    
+    UserService[UserService]
+    UserController[UserController]
+    AuthService[AuthService]
+    AuthController[AuthController]
+    DBService[DatabaseService]
+    
+    UserModule -.-> UserService
+    UserModule -.-> UserController
+    AuthModule -.-> AuthService
+    AuthModule -.-> AuthController
+    DatabaseModule -.-> DBService
+    
+    style AppModule fill:#f96,stroke:#333,stroke-width:4px
+    style UserModule fill:#f9f,stroke:#333,stroke-width:2px
+    style AuthModule fill:#f9f,stroke:#333,stroke-width:2px
+    style DatabaseModule fill:#f9f,stroke:#333,stroke-width:2px
+```
+
+## 4. Application Bootstrap
+
+### Spring Boot Example
+```java
+@SpringBootApplication
+public class Application {
+    public static void main(String[] args) {
+        SpringApplication.run(Application.class, args);
+    }
+}
+```
+
+### NestJS Example
+```typescript
+async function bootstrap() {
+    const app = await NestFactory.create(AppModule);
+    app.useGlobalPipes(new ValidationPipe());
+    await app.listen(3000);
+}
+bootstrap();
+```
+
+### GIMBAP Example
+```go
+package main
+
+import (
+    "github.com/jhseong7/gimbap"
+    "github.com/jhseong7/gimbap/engine/gin"
+    "myapp/modules"
+)
+
+func main() {
+    // Create app with root module and server engine
+    app := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "MyApp",
+        AppModule:    modules.AppModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(), // Can swap to Fiber/Echo
+    })
+    
+    // Add middleware (engine-specific)
+    app.AddMiddleware(func(ctx *gin.Context) {
+        ctx.Header("X-Custom-Header", "value")
+        ctx.Next()
+    })
+    
+    // Run with default options (port 8080)
+    app.Run()
+    
+    // Or run with custom options
+    app.RunWithOptions(gimbap.RuntimeOptions{
+        Port: 3000,
+        TLS: &gimbap.TLSOption{
+            CertFile: "cert.pem",
+            KeyFile:  "key.pem",
+        },
+    })
+}
+```
+
+## 5. Complex Dependency Injection Example
+
+### Scenario: Service with Multiple Dependencies
+
+```go
+// Database configuration provider
+type DBConfig struct {
+    Host     string
+    Port     int
+    Database string
+}
+
+func NewDBConfig() *DBConfig {
+    return &DBConfig{
+        Host:     "localhost",
+        Port:     5432,
+        Database: "myapp",
+    }
+}
+
+var DBConfigProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "DBConfig",
+    Instantiator: NewDBConfig,
+})
+
+// Logger service
+type LoggerService struct {
+    level string
+}
+
+func NewLoggerService() *LoggerService {
+    return &LoggerService{level: "info"}
+}
+
+var LoggerProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "LoggerService",
+    Instantiator: NewLoggerService,
+})
+
+// Cache service
+type CacheService struct {
+    logger *LoggerService
+}
+
+func NewCacheService(logger *LoggerService) *CacheService {
+    return &CacheService{logger: logger}
+}
+
+var CacheProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "CacheService",
+    Instantiator: NewCacheService,
+})
+
+// Complex service with multiple dependencies
+type OrderService struct {
+    db     *DatabaseService
+    cache  *CacheService
+    logger *LoggerService
+    config *DBConfig
+}
+
+// Constructor receives all dependencies automatically
+func NewOrderService(
+    db *DatabaseService,
+    cache *CacheService,
+    logger *LoggerService,
+    config *DBConfig,
+) *OrderService {
+    return &OrderService{
+        db:     db,
+        cache:  cache,
+        logger: logger,
+        config: config,
+    }
+}
+
+var OrderServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "OrderService",
+    Instantiator: NewOrderService,
+})
+```
+
+### Dependency Resolution Flow
+```mermaid
+graph TD
+    OS[OrderService]
+    DS[DatabaseService]
+    CS[CacheService]
+    LS[LoggerService]
+    DC[DBConfig]
+    
+    OS --> DS
+    OS --> CS
+    OS --> LS
+    OS --> DC
+    
+    DS --> DC
+    DS --> LS
+    
+    CS --> LS
+    
+    style OS fill:#f96,stroke:#333,stroke-width:4px
+    style DS fill:#bbf,stroke:#333,stroke-width:2px
+    style CS fill:#bbf,stroke:#333,stroke-width:2px
+    style LS fill:#bfb,stroke:#333,stroke-width:2px
+    style DC fill:#fbb,stroke:#333,stroke-width:2px
+```
+
+## 6. Microservices
+
+GIMBAP supports background services similar to NestJS providers that implement lifecycle hooks.
+
+### NestJS Example
+```typescript
+@Injectable()
+export class TaskService implements OnModuleInit, OnModuleDestroy {
+    onModuleInit() {
+        console.log('Starting background tasks...');
+    }
+    
+    onModuleDestroy() {
+        console.log('Cleanup...');
+    }
+}
+```
+
+### GIMBAP Example
+```go
+package services
+
+import (
+    "time"
+    "github.com/jhseong7/gimbap/microservice"
+)
+
+type TaskService struct {
+    microservice.IMicroService
+    logger *LoggerService
+    config *Config
+}
+
+// Start is called when the app starts
+func (s *TaskService) Start() {
+    s.logger.Log("Starting background tasks...")
+    go s.runPeriodicTask()
+}
+
+// Stop is called on app shutdown
+func (s *TaskService) Stop() {
+    s.logger.Log("Stopping background tasks...")
+}
+
+func (s *TaskService) runPeriodicTask() {
+    ticker := time.NewTicker(5 * time.Second)
+    for range ticker.C {
+        s.logger.Log("Running periodic task...")
+    }
+}
+
+// Constructor with DI
+func NewTaskService(logger *LoggerService, config *Config) *TaskService {
+    return &TaskService{
+        logger: logger,
+        config: config,
+    }
+}
+
+// Define as microservice provider
+var TaskServiceProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "TaskService",
+        Instantiator: NewTaskService,
+    },
+)
+
+// In main.go
+app.AddMicroServices(TaskServiceProvider)
+```
+
+## Key Differences from Spring/NestJS
+
+### 1. No Annotations/Decorators
+Go doesn't support annotations, so GIMBAP uses explicit provider definitions:
+- Spring: `@Service`, `@Autowired`
+- NestJS: `@Injectable()`, `@Controller()`
+- GIMBAP: `DefineProvider()`, `DefineController()`
+
+### 2. Explicit Type Registration
+You must explicitly register all providers with `DefineProvider()`:
+```go
+// This won't work - no auto-discovery
+type MyService struct {}
+
+// Must explicitly register
+var MyServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "MyService",
+    Instantiator: NewMyService,
+})
+```
+
+### 3. Pointer vs Value Types
+**Critical**: Always check whether to use pointer or value types:
+```go
+// Constructor returns pointer
+func NewService() *Service { return &Service{} }
+
+// Dependency injection uses pointer
+func NewController(svc *Service) *Controller {
+    return &Controller{service: svc}
+}
+
+// Struct field stores value (copies the service)
+type Controller struct {
+    service Service  // ❌ Wrong - loses reference
+}
+
+// Correct - store as pointer
+type Controller struct {
+    service *Service  // ✅ Correct
+}
+```
+
+### 4. Engine-Specific Handlers
+Controller handlers must match the HTTP engine's signature:
+- Gin: `func(c *gin.Context)`
+- Fiber: `func(c *fiber.Ctx) error`
+- Echo: `func(c echo.Context) error`
+
+### 5. No Automatic Route Parameter Binding
+You must manually extract parameters:
+```go
+// Spring/NestJS handle this automatically
+// GIMBAP requires manual extraction
+func (c *Controller) GetUser(ctx *gin.Context) {
+    id := ctx.Param("id")  // Manual extraction
+    // Convert string to int, handle errors, etc.
+}
+```
+
+## Best Practices
+
+### 1. Module Organization
+```
+project/
+├── cmd/
+│   └── app/
+│       └── main.go
+├── internal/
+│   ├── user/
+│   │   ├── module.go
+│   │   ├── controller.go
+│   │   ├── service.go
+│   │   └── repository.go
+│   ├── auth/
+│   │   ├── module.go
+│   │   ├── controller.go
+│   │   └── service.go
+│   └── app/
+│       └── module.go  // Root module
+└── go.mod
+```
+
+### 2. Type Safety Checklist
+- [ ] Constructor returns pointer type (`*Type`)
+- [ ] Dependencies are pointer types in struct fields
+- [ ] Constructor parameters match injected types exactly
+- [ ] Handler signatures match the chosen engine
+- [ ] Interface implementations are checked
+
+### 3. Dependency Graph Visualization
+Always create diagrams when adding new modules:
+```mermaid
+graph LR
+    NewModule[New Module]
+    ExistingModule[Existing Module]
+    Service1[Service 1]
+    Service2[Service 2]
+    
+    NewModule --> Service1
+    NewModule --> Service2
+    ExistingModule --> Service1
+    
+    style NewModule fill:#f96,stroke:#333,stroke-width:4px
+```
+
+### 4. Testing with DI
+```go
+// Create test app with mock providers
+func TestUserService(t *testing.T) {
+    mockDB := &MockDatabaseService{}
+    
+    // Manually create service with mocks
+    service := NewUserService(mockDB)
+    
+    // Or create test module
+    testModule := gimbap.DefineModule(gimbap.ModuleOption{
+        Name: "TestModule",
+        Providers: []*gimbap.Provider{
+            {Name: "MockDB", Instantiator: func() *MockDatabaseService {
+                return mockDB
+            }},
+        },
+    })
+}
+```
+
+## Common Patterns
+
+### 1. Repository Pattern
+```go
+type UserRepository interface {
+    FindById(id int64) (*User, error)
+    Save(user *User) error
+}
+
+type userRepositoryImpl struct {
+    db *DatabaseService
+}
+
+func NewUserRepository(db *DatabaseService) UserRepository {
+    return &userRepositoryImpl{db: db}
+}
+
+// Service depends on interface, not implementation
+type UserService struct {
+    repo UserRepository  // Interface type
+}
+```
+
+### 2. Configuration Injection
+```go
+type AppConfig struct {
+    Port        int
+    DatabaseURL string
+    JWTSecret   string
+}
+
+func NewAppConfig() *AppConfig {
+    return &AppConfig{
+        Port:        getEnvInt("PORT", 8080),
+        DatabaseURL: getEnv("DATABASE_URL", "localhost:5432"),
+        JWTSecret:   getEnv("JWT_SECRET", "secret"),
+    }
+}
+
+// Inject config into services
+type AuthService struct {
+    config *AppConfig
+    // ... other deps
+}
+```
+
+### 3. Middleware as Providers
+```go
+type AuthMiddleware struct {
+    authService *AuthService
+}
+
+func NewAuthMiddleware(authService *AuthService) *AuthMiddleware {
+    return &AuthMiddleware{authService: authService}
+}
+
+func (m *AuthMiddleware) Authenticate() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := c.GetHeader("Authorization")
+        if !m.authService.ValidateToken(token) {
+            c.AbortWithStatus(401)
+            return
+        }
+        c.Next()
+    }
+}
+
+// In controller
+func (c *UserController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/profile",
+            Handler: c.GetProfile,
+            Middlewares: []gin.HandlerFunc{
+                c.authMiddleware.Authenticate(),
+            },
+        },
+    }
+}
+```
+
+## Troubleshooting
+
+### 1. Circular Dependencies
+```mermaid
+graph LR
+    A[Service A] --> B[Service B]
+    B --> A
+    style A fill:#f99,stroke:#333,stroke-width:2px
+    style B fill:#f99,stroke:#333,stroke-width:2px
+```
+Solution: Introduce interfaces or restructure dependencies
+
+### 2. Type Mismatch Errors
+Always check:
+- Return type of constructor matches provider expectation
+- Pointer vs value types in dependencies
+- Interface satisfaction
+
+### 3. Route Not Found
+Verify:
+- Controller is added to module
+- Module is included in app
+- `GetRouteSpecs()` returns correct routes
+- Path includes controller's `RootPath`
+
+## Summary
+
+GIMBAP brings familiar DI patterns to Go with some adaptations for Go's type system. Remember:
+1. Always visualize dependencies with diagrams
+2. Check types carefully (especially pointers)
+3. Provide complete code examples
+4. Explicitly register all providers
+5. Match handler signatures to chosen engine
+
+This framework excels at creating modular, testable Go applications with clear separation of concerns, similar to Spring Boot and NestJS architectures.
+
+# NestJS to GIMBAP Porting Guide
+
+This comprehensive guide helps port NestJS applications to GIMBAP, covering all major NestJS patterns and their GIMBAP equivalents.
+
+## Table of Contents
+1. [Core Decorators](#core-decorators)
+2. [HTTP Decorators](#http-decorators)
+3. [Pipes and Validation](#pipes-and-validation)
+4. [Guards](#guards)
+5. [Interceptors](#interceptors)
+6. [Exception Filters](#exception-filters)
+7. [Middleware](#middleware)
+8. [Custom Providers](#custom-providers)
+9. [Module Patterns](#module-patterns)
+10. [Request Lifecycle](#request-lifecycle)
+11. [Testing](#testing)
+12. [Advanced Patterns](#advanced-patterns)
+
+## Core Decorators
+
+### @Injectable() → Provider
+
+#### NestJS
+```typescript
+@Injectable()
+export class CatsService {
+  private readonly cats: Cat[] = [];
+
+  constructor(
+    private readonly logger: LoggerService,
+    @Inject('CONFIG') private readonly config: ConfigType
+  ) {}
+
+  create(cat: Cat) {
+    this.cats.push(cat);
+    this.logger.log('Cat created');
+  }
+
+  findAll(): Cat[] {
+    return this.cats;
+  }
+}
+```
+
+#### GIMBAP
+```go
+package cats
+
+import "github.com/jhseong7/gimbap"
+
+type CatsService struct {
+    cats   []Cat
+    logger *LoggerService
+    config *ConfigType
+}
+
+func NewCatsService(logger *LoggerService, config *ConfigType) *CatsService {
+    return &CatsService{
+        cats:   make([]Cat, 0),
+        logger: logger,
+        config: config,
+    }
+}
+
+func (s *CatsService) Create(cat Cat) {
+    s.cats = append(s.cats, cat)
+    s.logger.Log("Cat created")
+}
+
+func (s *CatsService) FindAll() []Cat {
+    return s.cats
+}
+
+var CatsServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "CatsService",
+    Instantiator: NewCatsService,
+})
+```
+
+### @Controller() → Controller
+
+#### NestJS
+```typescript
+@Controller('cats')
+@UseGuards(AuthGuard)
+@UseInterceptors(LoggingInterceptor)
+export class CatsController {
+  constructor(private readonly catsService: CatsService) {}
+
+  @Post()
+  @UsePipes(ValidationPipe)
+  async create(@Body() createCatDto: CreateCatDto) {
+    return this.catsService.create(createCatDto);
+  }
+
+  @Get()
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  async findAll(@Query('limit') limit: number) {
+    return this.catsService.findAll();
+  }
+
+  @Get(':id')
+  async findOne(@Param('id', ParseIntPipe) id: number) {
+    return this.catsService.findOne(id);
+  }
+}
+```
+
+#### GIMBAP (Gin Engine)
+```go
+package cats
+
+import (
+    "strconv"
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+type CatsController struct {
+    gimbap.IController
+    catsService     *CatsService
+    authGuard       *AuthGuard
+    loggingInterceptor *LoggingInterceptor
+    validationPipe  *ValidationPipe
+    rolesGuard      *RolesGuard
+}
+
+func NewCatsController(
+    catsService *CatsService,
+    authGuard *AuthGuard,
+    loggingInterceptor *LoggingInterceptor,
+    validationPipe *ValidationPipe,
+    rolesGuard *RolesGuard,
+) *CatsController {
+    return &CatsController{
+        catsService:        catsService,
+        authGuard:          authGuard,
+        loggingInterceptor: loggingInterceptor,
+        validationPipe:     validationPipe,
+        rolesGuard:         rolesGuard,
+    }
+}
+
+func (c *CatsController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "POST",
+            Path:    "/",
+            Handler: c.Create,
+            Middlewares: []gin.HandlerFunc{
+                c.authGuard.Authenticate(),
+                c.loggingInterceptor.Intercept(),
+                c.validationPipe.Validate(CreateCatDto{}),
+            },
+        },
+        {
+            Method:  "GET",
+            Path:    "/",
+            Handler: c.FindAll,
+            Middlewares: []gin.HandlerFunc{
+                c.authGuard.Authenticate(),
+                c.rolesGuard.RequireRoles("admin"),
+                c.loggingInterceptor.Intercept(),
+            },
+        },
+        {
+            Method:  "GET",
+            Path:    "/:id",
+            Handler: c.FindOne,
+            Middlewares: []gin.HandlerFunc{
+                c.authGuard.Authenticate(),
+                c.loggingInterceptor.Intercept(),
+            },
+        },
+    }
+}
+
+func (c *CatsController) Create(ctx *gin.Context) {
+    var dto CreateCatDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(400, gin.H{"error": err.Error()})
+        return
+    }
+
+    cat := c.catsService.Create(dto)
+    ctx.JSON(201, cat)
+}
+
+func (c *CatsController) FindAll(ctx *gin.Context) {
+    limitStr := ctx.Query("limit")
+    limit := 10 // default
+    if limitStr != "" {
+        if l, err := strconv.Atoi(limitStr); err == nil {
+            limit = l
+        }
+    }
+
+    cats := c.catsService.FindAll(limit)
+    ctx.JSON(200, cats)
+}
+
+func (c *CatsController) FindOne(ctx *gin.Context) {
+    idStr := ctx.Param("id")
+    id, err := strconv.Atoi(idStr)
+    if err != nil {
+        ctx.JSON(400, gin.H{"error": "Invalid ID"})
+        return
+    }
+
+    cat, err := c.catsService.FindOne(id)
+    if err != nil {
+        ctx.JSON(404, gin.H{"error": "Cat not found"})
+        return
+    }
+    ctx.JSON(200, cat)
+}
+
+var CatsControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "CatsController",
+    Instantiator: NewCatsController,
+    RootPath:     "cats",
+})
+```
+
+## HTTP Decorators
+
+### Route Decorators (@Get, @Post, @Put, @Delete, @Patch)
+
+#### NestJS
+```typescript
+@Controller('products')
+export class ProductsController {
+  @Get()
+  findAll() { /* ... */ }
+
+  @Get(':id')
+  findOne(@Param('id') id: string) { /* ... */ }
+
+  @Post()
+  create(@Body() dto: CreateProductDto) { /* ... */ }
+
+  @Put(':id')
+  update(@Param('id') id: string, @Body() dto: UpdateProductDto) { /* ... */ }
+
+  @Delete(':id')
+  remove(@Param('id') id: string) { /* ... */ }
+
+  @Patch(':id')
+  partialUpdate(@Param('id') id: string, @Body() dto: PartialProductDto) { /* ... */ }
+}
+```
+
+#### GIMBAP
+```go
+func (c *ProductsController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {Method: "GET", Path: "/", Handler: c.FindAll},
+        {Method: "GET", Path: "/:id", Handler: c.FindOne},
+        {Method: "POST", Path: "/", Handler: c.Create},
+        {Method: "PUT", Path: "/:id", Handler: c.Update},
+        {Method: "DELETE", Path: "/:id", Handler: c.Remove},
+        {Method: "PATCH", Path: "/:id", Handler: c.PartialUpdate},
+    }
+}
+
+func (c *ProductsController) FindAll(ctx *gin.Context) {
+    products := c.productService.FindAll()
+    ctx.JSON(200, products)
+}
+
+func (c *ProductsController) FindOne(ctx *gin.Context) {
+    id := ctx.Param("id")
+    product, err := c.productService.FindOne(id)
+    if err != nil {
+        ctx.JSON(404, gin.H{"error": "Product not found"})
+        return
+    }
+    ctx.JSON(200, product)
+}
+
+func (c *ProductsController) Create(ctx *gin.Context) {
+    var dto CreateProductDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(400, gin.H{"error": err.Error()})
+        return
+    }
+    product := c.productService.Create(dto)
+    ctx.JSON(201, product)
+}
+
+func (c *ProductsController) Update(ctx *gin.Context) {
+    id := ctx.Param("id")
+    var dto UpdateProductDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(400, gin.H{"error": err.Error()})
+        return
+    }
+    product, err := c.productService.Update(id, dto)
+    if err != nil {
+        ctx.JSON(404, gin.H{"error": "Product not found"})
+        return
+    }
+    ctx.JSON(200, product)
+}
+
+func (c *ProductsController) Remove(ctx *gin.Context) {
+    id := ctx.Param("id")
+    if err := c.productService.Remove(id); err != nil {
+        ctx.JSON(404, gin.H{"error": "Product not found"})
+        return
+    }
+    ctx.Status(204)
+}
+
+func (c *ProductsController) PartialUpdate(ctx *gin.Context) {
+    id := ctx.Param("id")
+    var dto PartialProductDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(400, gin.H{"error": err.Error()})
+        return
+    }
+    product, err := c.productService.PartialUpdate(id, dto)
+    if err != nil {
+        ctx.JSON(404, gin.H{"error": "Product not found"})
+        return
+    }
+    ctx.JSON(200, product)
+}
+```
+
+### Parameter Decorators (@Param, @Query, @Body, @Headers)
+
+#### NestJS
+```typescript
+@Controller('users')
+export class UsersController {
+  @Get('search')
+  search(
+    @Query('q') query: string,
+    @Query('page', ParseIntPipe) page: number = 1,
+    @Query('limit', ParseIntPipe) limit: number = 10,
+    @Headers('x-api-key') apiKey: string
+  ) {
+    return this.usersService.search(query, page, limit);
+  }
+
+  @Post(':userId/posts')
+  createPost(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() createPostDto: CreatePostDto,
+    @Headers() headers: Record<string, string>
+  ) {
+    return this.postsService.create(userId, createPostDto);
+  }
+}
+```
+
+#### GIMBAP
+```go
+func (c *UsersController) Search(ctx *gin.Context) {
+    // @Query parameters
+    query := ctx.Query("q")
+    pageStr := ctx.DefaultQuery("page", "1")
+    limitStr := ctx.DefaultQuery("limit", "10")
+    
+    page, _ := strconv.Atoi(pageStr)
+    limit, _ := strconv.Atoi(limitStr)
+    
+    // @Headers
+    apiKey := ctx.GetHeader("x-api-key")
+    if apiKey == "" {
+        ctx.JSON(401, gin.H{"error": "API key required"})
+        return
+    }
+    
+    results := c.usersService.Search(query, page, limit)
+    ctx.JSON(200, results)
+}
+
+func (c *UsersController) CreatePost(ctx *gin.Context) {
+    // @Param
+    userId := ctx.Param("userId")
+    if !isValidUUID(userId) {
+        ctx.JSON(400, gin.H{"error": "Invalid user ID format"})
+        return
+    }
+    
+    // @Body
+    var dto CreatePostDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(400, gin.H{"error": err.Error()})
+        return
+    }
+    
+    // All headers
+    headers := make(map[string]string)
+    for key, values := range ctx.Request.Header {
+        if len(values) > 0 {
+            headers[key] = values[0]
+        }
+    }
+    
+    post := c.postsService.Create(userId, dto)
+    ctx.JSON(201, post)
+}
+```
+
+## Pipes and Validation
+
+### Validation Pipe
+
+#### NestJS
+```typescript
+// DTO with class-validator
+import { IsString, IsInt, Min, Max, IsEmail } from 'class-validator';
+
+export class CreateUserDto {
+  @IsString()
+  @IsEmail()
+  email: string;
+
+  @IsString()
+  @MinLength(8)
+  password: string;
+
+  @IsInt()
+  @Min(0)
+  @Max(120)
+  age: number;
+}
+
+// Controller using ValidationPipe
+@Controller('users')
+export class UsersController {
+  @Post()
+  @UsePipes(new ValidationPipe({ transform: true }))
+  create(@Body() createUserDto: CreateUserDto) {
+    return this.usersService.create(createUserDto);
+  }
+}
+```
+
+#### GIMBAP
+```go
+package users
+
+import (
+    "github.com/go-playground/validator/v10"
+    "github.com/gin-gonic/gin"
+)
+
+// DTO with validation tags
+type CreateUserDto struct {
+    Email    string `json:"email" binding:"required,email"`
+    Password string `json:"password" binding:"required,min=8"`
+    Age      int    `json:"age" binding:"required,min=0,max=120"`
+}
+
+// Validation pipe implementation
+type ValidationPipe struct {
+    validator *validator.Validate
+}
+
+func NewValidationPipe() *ValidationPipe {
+    return &ValidationPipe{
+        validator: validator.New(),
+    }
+}
+
+func (p *ValidationPipe) Validate(dto interface{}) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Gin's ShouldBindJSON already validates using binding tags
+        // For custom validation logic:
+        if err := c.ShouldBindJSON(&dto); err != nil {
+            c.JSON(400, gin.H{
+                "error": "Validation failed",
+                "details": err.Error(),
+            })
+            c.Abort()
+            return
+        }
+        
+        // Store validated DTO in context for handler
+        c.Set("validatedDto", dto)
+        c.Next()
+    }
+}
+
+// Controller usage
+func (c *UsersController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "POST",
+            Path:    "/",
+            Handler: c.Create,
+            Middlewares: []gin.HandlerFunc{
+                c.validationPipe.Validate(&CreateUserDto{}),
+            },
+        },
+    }
+}
+
+func (c *UsersController) Create(ctx *gin.Context) {
+    dto, _ := ctx.Get("validatedDto")
+    createUserDto := dto.(*CreateUserDto)
+    
+    user := c.usersService.Create(createUserDto)
+    ctx.JSON(201, user)
+}
+```
+
+### Transform Pipe
+
+#### NestJS
+```typescript
+@Injectable()
+export class ParseDatePipe implements PipeTransform {
+  transform(value: string): Date {
+    const date = new Date(value);
+    if (isNaN(date.getTime())) {
+      throw new BadRequestException('Invalid date format');
+    }
+    return date;
+  }
+}
+
+// Usage
+@Get('events')
+findEvents(@Query('date', ParseDatePipe) date: Date) {
+  return this.eventsService.findByDate(date);
+}
+```
+
+#### GIMBAP
+```go
+type ParseDatePipe struct{}
+
+func NewParseDatePipe() *ParseDatePipe {
+    return &ParseDatePipe{}
+}
+
+func (p *ParseDatePipe) Transform() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        dateStr := c.Query("date")
+        if dateStr == "" {
+            c.Next()
+            return
+        }
+        
+        date, err := time.Parse(time.RFC3339, dateStr)
+        if err != nil {
+            c.JSON(400, gin.H{"error": "Invalid date format"})
+            c.Abort()
+            return
+        }
+        
+        c.Set("parsedDate", date)
+        c.Next()
+    }
+}
+
+// Usage in controller
+func (c *EventsController) FindEvents(ctx *gin.Context) {
+    dateInterface, exists := ctx.Get("parsedDate")
+    if !exists {
+        ctx.JSON(400, gin.H{"error": "Date parameter required"})
+        return
+    }
+    
+    date := dateInterface.(time.Time)
+    events := c.eventsService.FindByDate(date)
+    ctx.JSON(200, events)
+}
+```
+
+## Guards
+
+### Auth Guard
+
+#### NestJS
+```typescript
+@Injectable()
+export class AuthGuard implements CanActivate {
+  constructor(private jwtService: JwtService) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const request = context.switchToHttp().getRequest();
+    const token = this.extractTokenFromHeader(request);
+    
+    if (!token) {
+      throw new UnauthorizedException();
+    }
+    
+    try {
+      const payload = this.jwtService.verify(token);
+      request.user = payload;
+      return true;
+    } catch {
+      throw new UnauthorizedException();
+    }
+  }
+
+  private extractTokenFromHeader(request: Request): string | undefined {
+    const [type, token] = request.headers.authorization?.split(' ') ?? [];
+    return type === 'Bearer' ? token : undefined;
+  }
+}
+```
+
+#### GIMBAP
+```go
+type AuthGuard struct {
+    jwtService *JwtService
+}
+
+func NewAuthGuard(jwtService *JwtService) *AuthGuard {
+    return &AuthGuard{jwtService: jwtService}
+}
+
+func (g *AuthGuard) Authenticate() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := g.extractTokenFromHeader(c)
+        
+        if token == "" {
+            c.JSON(401, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+        
+        payload, err := g.jwtService.Verify(token)
+        if err != nil {
+            c.JSON(401, gin.H{"error": "Invalid token"})
+            c.Abort()
+            return
+        }
+        
+        // Store user in context
+        c.Set("user", payload)
+        c.Next()
+    }
+}
+
+func (g *AuthGuard) extractTokenFromHeader(c *gin.Context) string {
+    authHeader := c.GetHeader("Authorization")
+    if authHeader == "" {
+        return ""
+    }
+    
+    parts := strings.Split(authHeader, " ")
+    if len(parts) != 2 || parts[0] != "Bearer" {
+        return ""
+    }
+    
+    return parts[1]
+}
+
+var AuthGuardProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "AuthGuard",
+    Instantiator: NewAuthGuard,
+})
+```
+
+### Roles Guard
+
+#### NestJS
+```typescript
+@Injectable()
+export class RolesGuard implements CanActivate {
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    
+    if (!requiredRoles) {
+      return true;
+    }
+    
+    const { user } = context.switchToHttp().getRequest();
+    return requiredRoles.some((role) => user.roles?.includes(role));
+  }
+}
+
+// Usage with decorator
+@UseGuards(RolesGuard)
+@Roles('admin')
+@Get('admin')
+adminOnly() { /* ... */ }
+```
+
+#### GIMBAP
+```go
+type RolesGuard struct{}
+
+func NewRolesGuard() *RolesGuard {
+    return &RolesGuard{}
+}
+
+func (g *RolesGuard) RequireRoles(roles ...string) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userInterface, exists := c.Get("user")
+        if !exists {
+            c.JSON(401, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+        
+        user := userInterface.(*User)
+        
+        // Check if user has any of the required roles
+        hasRole := false
+        for _, requiredRole := range roles {
+            for _, userRole := range user.Roles {
+                if userRole == requiredRole {
+                    hasRole = true
+                    break
+                }
+            }
+            if hasRole {
+                break
+            }
+        }
+        
+        if !hasRole {
+            c.JSON(403, gin.H{"error": "Forbidden"})
+            c.Abort()
+            return
+        }
+        
+        c.Next()
+    }
+}
+
+// Usage in controller
+func (c *AdminController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/admin",
+            Handler: c.AdminOnly,
+            Middlewares: []gin.HandlerFunc{
+                c.authGuard.Authenticate(),
+                c.rolesGuard.RequireRoles("admin"),
+            },
+        },
+    }
+}
+```
+
+## Interceptors
+
+### Logging Interceptor
+
+#### NestJS
+```typescript
+@Injectable()
+export class LoggingInterceptor implements NestInterceptor {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
+    const request = context.switchToHttp().getRequest();
+    const method = request.method;
+    const url = request.url;
+    const now = Date.now();
+
+    return next.handle().pipe(
+      tap(() => {
+        const response = context.switchToHttp().getResponse();
+        const statusCode = response.statusCode;
+        console.log(`${method} ${url} ${statusCode} - ${Date.now() - now}ms`);
+      }),
+    );
+  }
+}
+```
+
+#### GIMBAP
+```go
+type LoggingInterceptor struct {
+    logger *LoggerService
+}
+
+func NewLoggingInterceptor(logger *LoggerService) *LoggingInterceptor {
+    return &LoggingInterceptor{logger: logger}
+}
+
+func (i *LoggingInterceptor) Intercept() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        start := time.Now()
+        method := c.Request.Method
+        path := c.Request.URL.Path
+        
+        // Process request
+        c.Next()
+        
+        // After request is processed
+        duration := time.Since(start)
+        statusCode := c.Writer.Status()
+        
+        i.logger.Log(fmt.Sprintf("%s %s %d - %v", 
+            method, path, statusCode, duration))
+    }
+}
+```
+
+### Transform Response Interceptor
+
+#### NestJS
+```typescript
+@Injectable()
+export class TransformInterceptor<T> implements NestInterceptor<T, Response<T>> {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<Response<T>> {
+    return next.handle().pipe(
+      map(data => ({
+        success: true,
+        data,
+        timestamp: new Date().toISOString(),
+      }))
+    );
+  }
+}
+```
+
+#### GIMBAP
+```go
+type TransformInterceptor struct{}
+
+func NewTransformInterceptor() *TransformInterceptor {
+    return &TransformInterceptor{}
+}
+
+func (i *TransformInterceptor) Transform() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Capture the response
+        writer := &responseWriter{ResponseWriter: c.Writer, body: []byte{}}
+        c.Writer = writer
+        
+        c.Next()
+        
+        // Transform the response
+        if c.Writer.Status() < 400 {
+            var originalResponse interface{}
+            if err := json.Unmarshal(writer.body, &originalResponse); err == nil {
+                transformedResponse := map[string]interface{}{
+                    "success":   true,
+                    "data":      originalResponse,
+                    "timestamp": time.Now().Format(time.RFC3339),
+                }
+                
+                c.Writer = writer.ResponseWriter
+                c.JSON(c.Writer.Status(), transformedResponse)
+            }
+        }
+    }
+}
+
+// Custom response writer to capture response body
+type responseWriter struct {
+    gin.ResponseWriter
+    body []byte
+}
+
+func (w *responseWriter) Write(data []byte) (int, error) {
+    w.body = append(w.body, data...)
+    return len(data), nil
+}
+```
+
+## Exception Filters
+
+### Global Exception Filter
+
+#### NestJS
+```typescript
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+
+    const status = exception instanceof HttpException
+      ? exception.getStatus()
+      : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    const message = exception instanceof HttpException
+      ? exception.getResponse()
+      : 'Internal server error';
+
+    response.status(status).json({
+      statusCode: status,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+      message,
+    });
+  }
+}
+
+// Usage
+app.useGlobalFilters(new AllExceptionsFilter());
+```
+
+#### GIMBAP
+```go
+type ExceptionFilter struct {
+    logger *LoggerService
+}
+
+func NewExceptionFilter(logger *LoggerService) *ExceptionFilter {
+    return &ExceptionFilter{logger: logger}
+}
+
+func (f *ExceptionFilter) HandleExceptions() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        defer func() {
+            if err := recover(); err != nil {
+                f.logger.Error(fmt.Sprintf("Panic recovered: %v", err))
+                
+                statusCode := 500
+                message := "Internal server error"
+                
+                // Check if it's a custom error type
+                if httpErr, ok := err.(*HttpException); ok {
+                    statusCode = httpErr.StatusCode
+                    message = httpErr.Message
+                }
+                
+                c.JSON(statusCode, gin.H{
+                    "statusCode": statusCode,
+                    "timestamp":  time.Now().Format(time.RFC3339),
+                    "path":       c.Request.URL.Path,
+                    "message":    message,
+                })
+                c.Abort()
+            }
+        }()
+        
+        c.Next()
+    }
+}
+
+// Custom exception type
+type HttpException struct {
+    StatusCode int
+    Message    string
+}
+
+func (e *HttpException) Error() string {
+    return e.Message
+}
+
+// Usage in main.go
+app.AddMiddleware(exceptionFilter.HandleExceptions())
+```
+
+### Custom Exception Filter
+
+#### NestJS
+```typescript
+@Catch(BusinessException)
+export class BusinessExceptionFilter implements ExceptionFilter {
+  catch(exception: BusinessException, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+
+    response.status(exception.statusCode).json({
+      statusCode: exception.statusCode,
+      error: exception.errorCode,
+      message: exception.message,
+      details: exception.details,
+    });
+  }
+}
+```
+
+#### GIMBAP
+```go
+type BusinessException struct {
+    StatusCode int
+    ErrorCode  string
+    Message    string
+    Details    map[string]interface{}
+}
+
+func (e *BusinessException) Error() string {
+    return e.Message
+}
+
+type BusinessExceptionFilter struct{}
+
+func NewBusinessExceptionFilter() *BusinessExceptionFilter {
+    return &BusinessExceptionFilter{}
+}
+
+func (f *BusinessExceptionFilter) HandleBusinessExceptions() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        defer func() {
+            if err := recover(); err != nil {
+                if businessErr, ok := err.(*BusinessException); ok {
+                    c.JSON(businessErr.StatusCode, gin.H{
+                        "statusCode": businessErr.StatusCode,
+                        "error":      businessErr.ErrorCode,
+                        "message":    businessErr.Message,
+                        "details":    businessErr.Details,
+                    })
+                    c.Abort()
+                } else {
+                    // Re-panic if not a BusinessException
+                    panic(err)
+                }
+            }
+        }()
+        
+        c.Next()
+    }
+}
+```
+
+## Middleware
+
+### Logger Middleware
+
+#### NestJS
+```typescript
+@Injectable()
+export class LoggerMiddleware implements NestMiddleware {
+  use(req: Request, res: Response, next: NextFunction) {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+    next();
+  }
+}
+
+// Apply in module
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer
+      .apply(LoggerMiddleware)
+      .forRoutes('*');
+  }
+}
+```
+
+#### GIMBAP
+```go
+type LoggerMiddleware struct {
+    logger *LoggerService
+}
+
+func NewLoggerMiddleware(logger *LoggerService) *LoggerMiddleware {
+    return &LoggerMiddleware{logger: logger}
+}
+
+func (m *LoggerMiddleware) Log() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        timestamp := time.Now().Format(time.RFC3339)
+        method := c.Request.Method
+        path := c.Request.URL.Path
+        
+        m.logger.Log(fmt.Sprintf("[%s] %s %s", timestamp, method, path))
+        
+        c.Next()
+    }
+}
+
+// Apply globally in main.go
+app.AddMiddleware(loggerMiddleware.Log())
+
+// Or apply to specific routes
+func (c *Controller) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/",
+            Handler: c.Get,
+            Middlewares: []gin.HandlerFunc{
+                c.loggerMiddleware.Log(),
+            },
+        },
+    }
+}
+```
+
+### CORS Middleware
+
+#### NestJS
+```typescript
+// main.ts
+app.enableCors({
+  origin: ['http://localhost:3000'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+});
+```
+
+#### GIMBAP
+```go
+type CorsMiddleware struct {
+    config *CorsConfig
+}
+
+type CorsConfig struct {
+    AllowOrigins     []string
+    AllowMethods     []string
+    AllowHeaders     []string
+    AllowCredentials bool
+}
+
+func NewCorsMiddleware(config *CorsConfig) *CorsMiddleware {
+    return &CorsMiddleware{config: config}
+}
+
+func (m *CorsMiddleware) Handle() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        origin := c.Request.Header.Get("Origin")
+        
+        // Check if origin is allowed
+        allowed := false
+        for _, allowedOrigin := range m.config.AllowOrigins {
+            if allowedOrigin == "*" || allowedOrigin == origin {
+                allowed = true
+                break
+            }
+        }
+        
+        if allowed {
+            c.Header("Access-Control-Allow-Origin", origin)
+            c.Header("Access-Control-Allow-Methods", strings.Join(m.config.AllowMethods, ", "))
+            c.Header("Access-Control-Allow-Headers", strings.Join(m.config.AllowHeaders, ", "))
+            
+            if m.config.AllowCredentials {
+                c.Header("Access-Control-Allow-Credentials", "true")
+            }
+        }
+        
+        // Handle preflight
+        if c.Request.Method == "OPTIONS" {
+            c.Status(204)
+            return
+        }
+        
+        c.Next()
+    }
+}
+
+// Usage in main.go
+corsConfig := &CorsConfig{
+    AllowOrigins:     []string{"http://localhost:3000"},
+    AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
+    AllowHeaders:     []string{"Content-Type", "Authorization"},
+    AllowCredentials: true,
+}
+corsMiddleware := NewCorsMiddleware(corsConfig)
+app.AddMiddleware(corsMiddleware.Handle())
+```
+
+## Custom Providers
+
+### useClass Provider
+
+#### NestJS
+```typescript
+const customServiceProvider = {
+  provide: ServiceInterface,
+  useClass: process.env.NODE_ENV === 'production' 
+    ? ProductionService 
+    : DevelopmentService,
+};
+
+@Module({
+  providers: [customServiceProvider],
+})
+export class AppModule {}
+```
+
+#### GIMBAP
+```go
+// Define interface
+type ServiceInterface interface {
+    DoSomething() string
+}
+
+// Production implementation
+type ProductionService struct{}
+func (s *ProductionService) DoSomething() string {
+    return "Production implementation"
+}
+
+// Development implementation
+type DevelopmentService struct{}
+func (s *DevelopmentService) DoSomething() string {
+    return "Development implementation"
+}
+
+// Conditional provider
+func NewServiceInterface() ServiceInterface {
+    if os.Getenv("GO_ENV") == "production" {
+        return &ProductionService{}
+    }
+    return &DevelopmentService{}
+}
+
+var ServiceInterfaceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "ServiceInterface",
+    Instantiator: NewServiceInterface,
+})
+```
+
+### useValue Provider
+
+#### NestJS
+```typescript
+const configProvider = {
+  provide: 'CONFIG',
+  useValue: {
+    apiUrl: 'https://api.example.com',
+    timeout: 5000,
+  },
+};
+```
+
+#### GIMBAP
+```go
+type Config struct {
+    ApiUrl  string
+    Timeout int
+}
+
+func NewConfig() *Config {
+    return &Config{
+        ApiUrl:  "https://api.example.com",
+        Timeout: 5000,
+    }
+}
+
+var ConfigProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "Config",
+    Instantiator: NewConfig,
+})
+```
+
+### useFactory Provider
+
+#### NestJS
+```typescript
+const connectionProvider = {
+  provide: 'CONNECTION',
+  useFactory: async (configService: ConfigService) => {
+    const options = configService.get('database');
+    const connection = await createConnection(options);
+    return connection;
+  },
+  inject: [ConfigService],
+};
+```
+
+#### GIMBAP
+```go
+type DatabaseConnection struct {
+    db *sql.DB
+}
+
+func NewDatabaseConnection(config *ConfigService) (*DatabaseConnection, error) {
+    options := config.Get("database")
+    db, err := sql.Open("postgres", options.ConnectionString)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Test connection
+    if err := db.Ping(); err != nil {
+        return nil, err
+    }
+    
+    return &DatabaseConnection{db: db}, nil
+}
+
+var DatabaseConnectionProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "DatabaseConnection",
+    Instantiator: NewDatabaseConnection,
+})
+```
+
+### Async Providers
+
+#### NestJS
+```typescript
+const asyncProvider = {
+  provide: 'ASYNC_CONNECTION',
+  useFactory: async () => {
+    const connection = await createAsyncConnection();
+    return connection;
+  },
+};
+```
+
+#### GIMBAP
+```go
+// GIMBAP handles initialization synchronously, but you can perform async operations
+// during app startup
+type AsyncConnection struct {
+    client *SomeClient
+}
+
+func NewAsyncConnection() *AsyncConnection {
+    conn := &AsyncConnection{}
+    
+    // Initialize in Start method if implementing IMicroService
+    return conn
+}
+
+func (c *AsyncConnection) Start() {
+    // Perform async initialization here
+    client, err := createAsyncClient()
+    if err != nil {
+        panic(err) // Or handle gracefully
+    }
+    c.client = client
+}
+
+func (c *AsyncConnection) Stop() {
+    if c.client != nil {
+        c.client.Close()
+    }
+}
+
+// Register as microservice to handle lifecycle
+var AsyncConnectionProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "AsyncConnection",
+        Instantiator: NewAsyncConnection,
+    },
+)
+```
+
+## Module Patterns
+
+### Dynamic Modules
+
+#### NestJS
+```typescript
+@Module({})
+export class DatabaseModule {
+  static forRoot(options: DatabaseOptions): DynamicModule {
+    return {
+      module: DatabaseModule,
+      providers: [
+        {
+          provide: 'DATABASE_OPTIONS',
+          useValue: options,
+        },
+        DatabaseService,
+      ],
+      exports: [DatabaseService],
+    };
+  }
+
+  static forFeature(entities: Entity[]): DynamicModule {
+    const providers = entities.map(entity => ({
+      provide: `${entity.name}Repository`,
+      useFactory: (connection: Connection) => connection.getRepository(entity),
+      inject: ['CONNECTION'],
+    }));
+
+    return {
+      module: DatabaseModule,
+      providers,
+      exports: providers,
+    };
+  }
+}
+```
+
+#### GIMBAP
+```go
+// Dynamic module pattern using factory functions
+type DatabaseOptions struct {
+    Host     string
+    Port     int
+    Database string
+}
+
+func CreateDatabaseModule(options DatabaseOptions) *gimbap.Module {
+    // Create options provider
+    optionsProvider := gimbap.DefineProvider(gimbap.ProviderOption{
+        Name: "DatabaseOptions",
+        Instantiator: func() *DatabaseOptions {
+            return &options
+        },
+    })
+    
+    // Create database service provider
+    dbServiceProvider := gimbap.DefineProvider(gimbap.ProviderOption{
+        Name: "DatabaseService",
+        Instantiator: func(opts *DatabaseOptions) *DatabaseService {
+            return NewDatabaseService(opts)
+        },
+    })
+    
+    return gimbap.DefineModule(gimbap.ModuleOption{
+        Name: "DatabaseModule",
+        Providers: []*gimbap.Provider{
+            optionsProvider,
+            dbServiceProvider,
+        },
+    })
+}
+
+// Feature module pattern
+func CreateRepositoryModule(entities []Entity) *gimbap.Module {
+    providers := make([]*gimbap.Provider, 0)
+    
+    for _, entity := range entities {
+        entity := entity // Capture loop variable
+        provider := gimbap.DefineProvider(gimbap.ProviderOption{
+            Name: fmt.Sprintf("%sRepository", entity.Name),
+            Instantiator: func(conn *DatabaseConnection) interface{} {
+                return conn.GetRepository(entity)
+            },
+        })
+        providers = append(providers, provider)
+    }
+    
+    return gimbap.DefineModule(gimbap.ModuleOption{
+        Name:      "RepositoryModule",
+        Providers: providers,
+    })
+}
+```
+
+### Global Modules
+
+#### NestJS
+```typescript
+@Global()
+@Module({
+  providers: [LoggerService],
+  exports: [LoggerService],
+})
+export class LoggerModule {}
+```
+
+#### GIMBAP
+```go
+// In GIMBAP, make providers available globally by including them in the root module
+// or creating a shared module that other modules import
+
+var LoggerProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "LoggerService",
+    Instantiator: NewLoggerService,
+})
+
+var GlobalModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "GlobalModule",
+    Providers: []*gimbap.Provider{
+        LoggerProvider,
+        ConfigProvider,
+        // Other global providers
+    },
+})
+
+// Include in root module
+var AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "AppModule",
+    SubModules: []*gimbap.Module{
+        GlobalModule, // Makes providers available to all modules
+        UserModule,
+        ProductModule,
+    },
+})
+```
+
+### Module Re-exporting
+
+#### NestJS
+```typescript
+@Module({
+  imports: [CommonModule],
+  exports: [CommonModule], // Re-export
+})
+export class SharedModule {}
+```
+
+#### GIMBAP
+```go
+// Create a shared module that includes and re-exports common modules
+var SharedModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "SharedModule",
+    SubModules: []*gimbap.Module{
+        CommonModule,
+        UtilsModule,
+    },
+    // In GIMBAP, submodules' providers are automatically available
+    // to sibling modules in the same parent module
+})
+
+// Use in other modules
+var FeatureModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "FeatureModule",
+    SubModules: []*gimbap.Module{
+        SharedModule, // Imports all providers from CommonModule and UtilsModule
+    },
+    Providers: []*gimbap.Provider{
+        FeatureServiceProvider,
+    },
+})
+```
+
+## Request Lifecycle
+
+### NestJS Request Lifecycle
+```
+1. Incoming request
+2. Middleware
+3. Guards
+4. Interceptors (before)
+5. Pipes
+6. Route handler
+7. Interceptors (after)
+8. Exception filters
+9. Response
+```
+
+### GIMBAP Request Lifecycle
+```go
+// Implement the same lifecycle using middleware chain
+func SetupRequestLifecycle(
+    authGuard *AuthGuard,
+    loggingInterceptor *LoggingInterceptor,
+    validationPipe *ValidationPipe,
+    exceptionFilter *ExceptionFilter,
+) []gin.HandlerFunc {
+    return []gin.HandlerFunc{
+        // 1. Exception filter (wraps everything)
+        exceptionFilter.HandleExceptions(),
+        
+        // 2. Middleware
+        gin.Logger(),
+        gin.Recovery(),
+        
+        // 3. Guards
+        authGuard.Authenticate(),
+        
+        // 4. Interceptors
+        loggingInterceptor.Intercept(),
+        
+        // 5. Pipes (validation)
+        validationPipe.Validate(),
+        
+        // 6. Route handler executes here
+    }
+}
+```
+
+## Testing
+
+### Unit Testing
+
+#### NestJS
+```typescript
+describe('CatsService', () => {
+  let service: CatsService;
+  let repository: MockRepository<Cat>;
+
+  beforeEach(async () => {
+    const module: TestingModule = await Test.createTestingModule({
+      providers: [
+        CatsService,
+        {
+          provide: getRepositoryToken(Cat),
+          useClass: MockRepository,
+        },
+      ],
+    }).compile();
+
+    service = module.get<CatsService>(CatsService);
+    repository = module.get<MockRepository<Cat>>(getRepositoryToken(Cat));
+  });
+
+  it('should create a cat', async () => {
+    const cat = { name: 'Test', age: 3 };
+    jest.spyOn(repository, 'save').mockResolvedValue(cat as Cat);
+
+    expect(await service.create(cat)).toEqual(cat);
+    expect(repository.save).toHaveBeenCalledWith(cat);
+  });
+});
+```
+
+#### GIMBAP
+```go
+package cats_test
+
+import (
+    "testing"
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+)
+
+// Mock repository
+type MockCatRepository struct {
+    mock.Mock
+}
+
+func (m *MockCatRepository) Save(cat *Cat) (*Cat, error) {
+    args := m.Called(cat)
+    return args.Get(0).(*Cat), args.Error(1)
+}
+
+func TestCatsService_Create(t *testing.T) {
+    // Setup
+    mockRepo := new(MockCatRepository)
+    service := NewCatsService(mockRepo)
+    
+    cat := &Cat{Name: "Test", Age: 3}
+    mockRepo.On("Save", cat).Return(cat, nil)
+    
+    // Test
+    result, err := service.Create(cat)
+    
+    // Assert
+    assert.NoError(t, err)
+    assert.Equal(t, cat, result)
+    mockRepo.AssertExpectations(t)
+}
+```
+
+### Integration Testing
+
+#### NestJS
+```typescript
+describe('CatsController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  it('/cats (POST)', () => {
+    return request(app.getHttpServer())
+      .post('/cats')
+      .send({ name: 'Test Cat', age: 3 })
+      .expect(201)
+      .expect({
+        id: expect.any(Number),
+        name: 'Test Cat',
+        age: 3,
+      });
+  });
+});
+```
+
+#### GIMBAP
+```go
+package integration_test
+
+import (
+    "bytes"
+    "encoding/json"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    
+    "github.com/stretchr/testify/assert"
+    "github.com/jhseong7/gimbap"
+)
+
+func TestCatsController_Create(t *testing.T) {
+    // Setup test app
+    app := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "TestApp",
+        AppModule:    TestModule, // Module with test providers
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+    
+    // Create test server
+    router := app.GetRouter()
+    
+    // Test data
+    createDto := CreateCatDto{Name: "Test Cat", Age: 3}
+    body, _ := json.Marshal(createDto)
+    
+    // Make request
+    req, _ := http.NewRequest("POST", "/cats", bytes.NewBuffer(body))
+    req.Header.Set("Content-Type", "application/json")
+    
+    w := httptest.NewRecorder()
+    router.ServeHTTP(w, req)
+    
+    // Assert
+    assert.Equal(t, 201, w.Code)
+    
+    var response Cat
+    err := json.Unmarshal(w.Body.Bytes(), &response)
+    assert.NoError(t, err)
+    assert.Equal(t, "Test Cat", response.Name)
+    assert.Equal(t, 3, response.Age)
+}
+```
+
+## Advanced Patterns
+
+### Custom Decorators
+
+#### NestJS
+```typescript
+// Custom decorator
+export const CurrentUser = createParamDecorator(
+  (data: unknown, ctx: ExecutionContext) => {
+    const request = ctx.switchToHttp().getRequest();
+    return request.user;
+  },
+);
+
+// Usage
+@Get('profile')
+getProfile(@CurrentUser() user: User) {
+  return user;
+}
+```
+
+#### GIMBAP
+```go
+// In Go, use middleware to inject data into context
+func CurrentUser() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // This would typically be set by auth middleware
+        user, exists := c.Get("user")
+        if !exists {
+            c.JSON(401, gin.H{"error": "Unauthorized"})
+            c.Abort()
+            return
+        }
+        
+        c.Set("currentUser", user)
+        c.Next()
+    }
+}
+
+// Usage in handler
+func (c *UserController) GetProfile(ctx *gin.Context) {
+    userInterface, _ := ctx.Get("currentUser")
+    user := userInterface.(*User)
+    
+    ctx.JSON(200, user)
+}
+```
+
+### Request Scoped Providers
+
+#### NestJS
+```typescript
+@Injectable({ scope: Scope.REQUEST })
+export class RequestScopedService {
+  constructor(@Inject(REQUEST) private request: Request) {}
+  
+  getUserId(): string {
+    return this.request.user.id;
+  }
+}
+```
+
+#### GIMBAP
+```go
+// In Go, use context values for request-scoped data
+type RequestContext struct {
+    UserID string
+    TraceID string
+}
+
+// Middleware to create request context
+func RequestContextMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        ctx := &RequestContext{
+            UserID:  c.GetString("userId"),
+            TraceID: generateTraceID(),
+        }
+        
+        c.Set("requestContext", ctx)
+        c.Next()
+    }
+}
+
+// Service that uses request context
+type RequestScopedService struct{}
+
+func (s *RequestScopedService) GetUserID(ctx *gin.Context) string {
+    reqCtx, _ := ctx.Get("requestContext")
+    return reqCtx.(*RequestContext).UserID
+}
+```
+
+### Circular Dependencies
+
+#### NestJS
+```typescript
+// Use forwardRef to resolve circular dependencies
+@Injectable()
+export class CatsService {
+  constructor(
+    @Inject(forwardRef(() => DogsService))
+    private dogsService: DogsService,
+  ) {}
+}
+
+@Injectable()
+export class DogsService {
+  constructor(
+    @Inject(forwardRef(() => CatsService))
+    private catsService: CatsService,
+  ) {}
+}
+```
+
+#### GIMBAP
+```go
+// Resolve circular dependencies using interfaces
+type CatsServiceInterface interface {
+    GetCats() []Cat
+}
+
+type DogsServiceInterface interface {
+    GetDogs() []Dog
+}
+
+type CatsService struct {
+    dogsService DogsServiceInterface
+}
+
+type DogsService struct {
+    catsService CatsServiceInterface
+}
+
+// Use setter injection or lazy initialization
+func (s *CatsService) SetDogsService(dogsService DogsServiceInterface) {
+    s.dogsService = dogsService
+}
+
+func (s *DogsService) SetCatsService(catsService CatsServiceInterface) {
+    s.catsService = catsService
+}
+
+// Wire them up after creation
+catsService := NewCatsService()
+dogsService := NewDogsService()
+catsService.SetDogsService(dogsService)
+dogsService.SetCatsService(catsService)
+```
+
+### WebSockets
+
+#### NestJS
+```typescript
+@WebSocketGateway()
+export class EventsGateway {
+  @WebSocketServer()
+  server: Server;
+
+  @SubscribeMessage('message')
+  handleMessage(client: Socket, payload: any): string {
+    return 'Hello world!';
+  }
+
+  @SubscribeMessage('events')
+  handleEvent(client: Socket, data: string): Observable<WsResponse<number>> {
+    const event = 'events';
+    const response = [1, 2, 3];
+    return from(response).pipe(
+      map(data => ({ event, data })),
+    );
+  }
+}
+```
+
+#### GIMBAP with Gorilla WebSocket
+```go
+type EventsGateway struct {
+    hub *Hub
+}
+
+type Hub struct {
+    clients    map[*Client]bool
+    broadcast  chan []byte
+    register   chan *Client
+    unregister chan *Client
+}
+
+type Client struct {
+    hub  *Hub
+    conn *websocket.Conn
+    send chan []byte
+}
+
+func NewEventsGateway() *EventsGateway {
+    hub := &Hub{
+        broadcast:  make(chan []byte),
+        register:   make(chan *Client),
+        unregister: make(chan *Client),
+        clients:    make(map[*Client]bool),
+    }
+    
+    go hub.run()
+    
+    return &EventsGateway{hub: hub}
+}
+
+func (g *EventsGateway) HandleWebSocket() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        upgrader := websocket.Upgrader{
+            CheckOrigin: func(r *http.Request) bool {
+                return true // Configure as needed
+            },
+        }
+        
+        conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+        if err != nil {
+            return
+        }
+        
+        client := &Client{
+            hub:  g.hub,
+            conn: conn,
+            send: make(chan []byte, 256),
+        }
+        
+        client.hub.register <- client
+        
+        go client.writePump()
+        go client.readPump()
+    }
+}
+
+func (c *Client) readPump() {
+    defer func() {
+        c.hub.unregister <- c
+        c.conn.Close()
+    }()
+    
+    for {
+        _, message, err := c.conn.ReadMessage()
+        if err != nil {
+            break
+        }
+        
+        // Handle different message types
+        var msg Message
+        if err := json.Unmarshal(message, &msg); err != nil {
+            continue
+        }
+        
+        switch msg.Type {
+        case "message":
+            response := []byte("Hello world!")
+            c.send <- response
+        case "events":
+            // Handle events
+        }
+    }
+}
+```
+
+### Scheduled Tasks
+
+#### NestJS
+```typescript
+@Injectable()
+export class TasksService {
+  private readonly logger = new Logger(TasksService.name);
+
+  @Cron('45 * * * * *')
+  handleCron() {
+    this.logger.debug('Called every 45 seconds');
+  }
+
+  @Interval(10000)
+  handleInterval() {
+    this.logger.debug('Called every 10 seconds');
+  }
+
+  @Timeout(5000)
+  handleTimeout() {
+    this.logger.debug('Called once after 5 seconds');
+  }
+}
+```
+
+#### GIMBAP
+```go
+import (
+    "github.com/robfig/cron/v3"
+)
+
+type TasksService struct {
+    microservice.IMicroService
+    logger *LoggerService
+    cron   *cron.Cron
+}
+
+func NewTasksService(logger *LoggerService) *TasksService {
+    return &TasksService{
+        logger: logger,
+        cron:   cron.New(),
+    }
+}
+
+func (s *TasksService) Start() {
+    // Cron job - every 45 seconds
+    s.cron.AddFunc("45 * * * * *", func() {
+        s.logger.Debug("Called every 45 seconds")
+    })
+    
+    // Interval - every 10 seconds
+    go func() {
+        ticker := time.NewTicker(10 * time.Second)
+        for range ticker.C {
+            s.logger.Debug("Called every 10 seconds")
+        }
+    }()
+    
+    // Timeout - once after 5 seconds
+    go func() {
+        time.Sleep(5 * time.Second)
+        s.logger.Debug("Called once after 5 seconds")
+    }()
+    
+    s.cron.Start()
+}
+
+func (s *TasksService) Stop() {
+    s.cron.Stop()
+}
+
+// Register as microservice
+var TasksServiceProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "TasksService",
+        Instantiator: NewTasksService,
+    },
+)
+```
+
+### Configuration Module
+
+#### NestJS
+```typescript
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      load: [configuration],
+      validationSchema: Joi.object({
+        NODE_ENV: Joi.string()
+          .valid('development', 'production', 'test')
+          .default('development'),
+        PORT: Joi.number().default(3000),
+      }),
+    }),
+  ],
+})
+export class AppModule {}
+
+// Usage
+@Injectable()
+export class AppService {
+  constructor(private configService: ConfigService) {}
+  
+  getPort(): number {
+    return this.configService.get<number>('PORT');
+  }
+}
+```
+
+#### GIMBAP
+```go
+import (
+    "github.com/spf13/viper"
+)
+
+type ConfigService struct {
+    viper *viper.Viper
+}
+
+func NewConfigService() *ConfigService {
+    v := viper.New()
+    
+    // Set defaults
+    v.SetDefault("GO_ENV", "development")
+    v.SetDefault("PORT", 3000)
+    
+    // Read from env
+    v.AutomaticEnv()
+    
+    // Read from config file
+    v.SetConfigName("config")
+    v.SetConfigType("yaml")
+    v.AddConfigPath(".")
+    
+    if err := v.ReadInConfig(); err != nil {
+        // Handle error or use defaults
+    }
+    
+    // Validate
+    if err := validateConfig(v); err != nil {
+        panic(fmt.Sprintf("Invalid configuration: %v", err))
+    }
+    
+    return &ConfigService{viper: v}
+}
+
+func (s *ConfigService) Get(key string) interface{} {
+    return s.viper.Get(key)
+}
+
+func (s *ConfigService) GetString(key string) string {
+    return s.viper.GetString(key)
+}
+
+func (s *ConfigService) GetInt(key string) int {
+    return s.viper.GetInt(key)
+}
+
+func validateConfig(v *viper.Viper) error {
+    env := v.GetString("GO_ENV")
+    validEnvs := []string{"development", "production", "test"}
+    valid := false
+    for _, validEnv := range validEnvs {
+        if env == validEnv {
+            valid = true
+            break
+        }
+    }
+    if !valid {
+        return fmt.Errorf("invalid GO_ENV: %s", env)
+    }
+    
+    port := v.GetInt("PORT")
+    if port < 1 || port > 65535 {
+        return fmt.Errorf("invalid PORT: %d", port)
+    }
+    
+    return nil
+}
+
+// Register as provider
+var ConfigServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "ConfigService",
+    Instantiator: NewConfigService,
+})
+
+// Usage in service
+type AppService struct {
+    config *ConfigService
+}
+
+func NewAppService(config *ConfigService) *AppService {
+    return &AppService{config: config}
+}
+
+func (s *AppService) GetPort() int {
+    return s.config.GetInt("PORT")
+}
+```
+
+### Health Checks
+
+#### NestJS
+```typescript
+@Controller('health')
+export class HealthController {
+  constructor(
+    private health: HealthCheckService,
+    private db: TypeOrmHealthIndicator,
+  ) {}
+
+  @Get()
+  @HealthCheck()
+  check() {
+    return this.health.check([
+      () => this.db.pingCheck('database'),
+    ]);
+  }
+}
+```
+
+#### GIMBAP
+```go
+type HealthController struct {
+    gimbap.IController
+    healthService *HealthService
+    dbService     *DatabaseService
+}
+
+func NewHealthController(healthService *HealthService, dbService *DatabaseService) *HealthController {
+    return &HealthController{
+        healthService: healthService,
+        dbService:     dbService,
+    }
+}
+
+func (c *HealthController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {Method: "GET", Path: "/", Handler: c.Check},
+    }
+}
+
+func (c *HealthController) Check(ctx *gin.Context) {
+    checks := []HealthCheck{
+        {
+            Name: "database",
+            Check: func() error {
+                return c.dbService.Ping()
+            },
+        },
+        // Add more health checks
+    }
+    
+    result := c.healthService.Check(checks)
+    
+    statusCode := 200
+    if result.Status != "ok" {
+        statusCode = 503
+    }
+    
+    ctx.JSON(statusCode, result)
+}
+
+type HealthService struct{}
+
+type HealthCheck struct {
+    Name  string
+    Check func() error
+}
+
+type HealthResult struct {
+    Status string                 `json:"status"`
+    Info   map[string]interface{} `json:"info"`
+    Error  map[string]interface{} `json:"error,omitempty"`
+}
+
+func (s *HealthService) Check(checks []HealthCheck) HealthResult {
+    result := HealthResult{
+        Status: "ok",
+        Info:   make(map[string]interface{}),
+        Error:  make(map[string]interface{}),
+    }
+    
+    for _, check := range checks {
+        if err := check.Check(); err != nil {
+            result.Status = "error"
+            result.Error[check.Name] = map[string]interface{}{
+                "status": "down",
+                "error":  err.Error(),
+            }
+        } else {
+            result.Info[check.Name] = map[string]interface{}{
+                "status": "up",
+            }
+        }
+    }
+    
+    return result
+}
+
+var HealthControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "HealthController",
+    Instantiator: NewHealthController,
+    RootPath:     "health",
+})
+```
+
+### Swagger/OpenAPI Documentation
+
+#### NestJS
+```typescript
+// main.ts
+const config = new DocumentBuilder()
+  .setTitle('Cats example')
+  .setDescription('The cats API description')
+  .setVersion('1.0')
+  .addTag('cats')
+  .build();
+
+const document = SwaggerModule.createDocument(app, config);
+SwaggerModule.setup('api', app, document);
+
+// Controller with Swagger decorators
+@ApiTags('cats')
+@Controller('cats')
+export class CatsController {
+  @ApiOperation({ summary: 'Create cat' })
+  @ApiResponse({ status: 201, description: 'The cat has been successfully created.' })
+  @ApiResponse({ status: 403, description: 'Forbidden.' })
+  @Post()
+  create(@Body() createCatDto: CreateCatDto) {
+    return this.catsService.create(createCatDto);
+  }
+}
+
+// DTO with Swagger decorators
+export class CreateCatDto {
+  @ApiProperty({ example: 'Fluffy', description: 'The name of the cat' })
+  @IsString()
+  name: string;
+
+  @ApiProperty({ example: 3, description: 'The age of the cat' })
+  @IsInt()
+  @Min(0)
+  age: number;
+}
+```
+
+#### GIMBAP with Swaggo
+```go
+// Install swag CLI: go install github.com/swaggo/swag/cmd/swag@latest
+// Generate docs: swag init
+
+// main.go
+import (
+    _ "myapp/docs" // Import generated docs
+    ginSwagger "github.com/swaggo/gin-swagger"
+    "github.com/swaggo/files"
+)
+
+// @title Cats Example API
+// @version 1.0
+// @description The cats API description
+// @host localhost:8080
+// @BasePath /api/v1
+func main() {
+    app := gimbap.CreateApp(...)
+    
+    // Add Swagger endpoint
+    router := app.GetRouter()
+    router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+    
+    app.Run()
+}
+
+// Controller with Swagger comments
+type CatsController struct {
+    gimbap.IController
+    catsService *CatsService
+}
+
+// CreateCat godoc
+// @Summary Create cat
+// @Description Create a new cat
+// @Tags cats
+// @Accept json
+// @Produce json
+// @Param cat body CreateCatDto true "Cat data"
+// @Success 201 {object} Cat "The cat has been successfully created"
+// @Failure 400 {object} ErrorResponse "Bad Request"
+// @Failure 403 {object} ErrorResponse "Forbidden"
+// @Router /cats [post]
+func (c *CatsController) Create(ctx *gin.Context) {
+    var dto CreateCatDto
+    if err := ctx.ShouldBindJSON(&dto); err != nil {
+        ctx.JSON(400, ErrorResponse{Error: err.Error()})
+        return
+    }
+    
+    cat := c.catsService.Create(dto)
+    ctx.JSON(201, cat)
+}
+
+// DTO definitions for Swagger
+type CreateCatDto struct {
+    Name string `json:"name" binding:"required" example:"Fluffy"`        // The name of the cat
+    Age  int    `json:"age" binding:"required,min=0,max=120" example:"3"` // The age of the cat
+}
+
+type Cat struct {
+    ID   int    `json:"id" example:"1"`
+    Name string `json:"name" example:"Fluffy"`
+    Age  int    `json:"age" example:"3"`
+}
+
+type ErrorResponse struct {
+    Error string `json:"error" example:"Bad Request"`
+}
+```
+
+## Migration Checklist
+
+When migrating from NestJS to GIMBAP, follow this checklist:
+
+### 1. Project Structure
+- [ ] Create Go module structure
+- [ ] Map NestJS modules to GIMBAP modules
+- [ ] Set up package organization
+
+### 2. Core Components
+- [ ] Convert `@Injectable()` services to GIMBAP providers
+- [ ] Convert `@Controller()` classes to GIMBAP controllers
+- [ ] Convert `@Module()` decorators to GIMBAP modules
+- [ ] Set up dependency injection
+
+### 3. HTTP Layer
+- [ ] Map route decorators to `GetRouteSpecs()`
+- [ ] Convert parameter decorators to manual extraction
+- [ ] Choose and implement for specific engine (Gin/Fiber/Echo)
+
+### 4. Middleware & Guards
+- [ ] Convert NestJS middleware to engine-specific middleware
+- [ ] Implement guards as middleware functions
+- [ ] Set up authentication/authorization
+
+### 5. Validation & Transformation
+- [ ] Replace class-validator with struct tags
+- [ ] Implement validation middleware
+- [ ] Create transform pipes as needed
+
+### 6. Error Handling
+- [ ] Implement exception filters as middleware
+- [ ] Set up global error handling
+- [ ] Map HTTP exceptions
+
+### 7. Advanced Features
+- [ ] Convert interceptors to middleware
+- [ ] Implement microservices/background tasks
+- [ ] Set up configuration management
+- [ ] Add health checks
+- [ ] Integrate Swagger documentation
+
+### 8. Testing
+- [ ] Set up test structure
+- [ ] Create mocks for dependencies
+- [ ] Write unit tests
+- [ ] Write integration tests
+
+### 9. Build & Deployment
+- [ ] Create build scripts
+- [ ] Set up environment configuration
+- [ ] Configure deployment pipeline
+
+## Common Pitfalls
+
+1. **Forgetting Pointer Types**: Always use pointer types for injected dependencies
+2. **Route Registration**: Remember to include all routes in `GetRouteSpecs()`
+3. **Middleware Order**: Middleware executes in order - auth should come before route handlers
+4. **Context Values**: Use type assertions when retrieving values from Gin context
+5. **Error Handling**: Go doesn't have exceptions - use error returns and panic recovery
+6. **Async Operations**: Go uses goroutines instead of Promises/async-await
+7. **Type Safety**: No runtime type checking - validate inputs manually
+8. **Module Exports**: GIMBAP modules automatically expose providers to parent modules
+
+## Summary
+
+This guide covers the major patterns and features when porting NestJS applications to GIMBAP. The key differences are:
+
+1. No decorators - use explicit registration
+2. Manual parameter extraction from context
+3. Engine-specific handler signatures
+4. Pointer types for dependencies
+5. Middleware-based request lifecycle
+6. Struct tags for validation
+7. No built-in ORM - use database/sql or third-party libraries
+
+GIMBAP provides similar architectural benefits to NestJS while leveraging Go's strengths in performance and simplicity.

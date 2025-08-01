@@ -1,0 +1,1875 @@
+# Step 2: REST API with Repository Pattern
+
+This guide demonstrates how to convert a Spring Boot REST API with JPA repositories to GIMBAP, maintaining the familiar layered architecture.
+
+## Entity Layer
+
+### Spring Boot JPA Entity
+
+```java
+// src/main/java/com/example/demo/entity/Product.java
+package com.example.demo.entity;
+
+import javax.persistence.*;
+import javax.validation.constraints.*;
+import lombok.Data;
+import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Set;
+
+@Entity
+@Table(name = "products")
+@Data
+@NamedQueries({
+    @NamedQuery(name = "Product.findByPriceRange", 
+                query = "SELECT p FROM Product p WHERE p.price BETWEEN :min AND :max"),
+    @NamedQuery(name = "Product.findActiveProducts",
+                query = "SELECT p FROM Product p WHERE p.active = true")
+})
+public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @NotBlank(message = "Product name is required")
+    @Size(min = 3, max = 100)
+    @Column(nullable = false, unique = true)
+    private String name;
+    
+    @Size(max = 500)
+    private String description;
+    
+    @NotNull(message = "Price is required")
+    @DecimalMin(value = "0.0", inclusive = false)
+    @Digits(integer = 10, fraction = 2)
+    @Column(nullable = false, precision = 12, scale = 2)
+    private BigDecimal price;
+    
+    @Min(0)
+    @Column(nullable = false)
+    private Integer stock = 0;
+    
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private ProductStatus status = ProductStatus.DRAFT;
+    
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "category_id")
+    private Category category;
+    
+    @ElementCollection
+    @CollectionTable(name = "product_tags", 
+                     joinColumns = @JoinColumn(name = "product_id"))
+    @Column(name = "tag")
+    private Set<String> tags;
+    
+    @Column(nullable = false)
+    private Boolean active = true;
+    
+    @CreationTimestamp
+    @Column(nullable = false, updatable = false)
+    private LocalDateTime createdAt;
+    
+    @UpdateTimestamp
+    @Column(nullable = false)
+    private LocalDateTime updatedAt;
+    
+    @Version
+    private Long version;
+}
+
+public enum ProductStatus {
+    DRAFT, PUBLISHED, ARCHIVED
+}
+```
+
+### GIMBAP Entity
+
+```go
+// internal/entity/product.go
+package entity
+
+import (
+    "database/sql/driver"
+    "time"
+)
+
+type Product struct {
+    ID          int64          `json:"id" db:"id"`
+    Name        string         `json:"name" db:"name"`
+    Description *string        `json:"description,omitempty" db:"description"`
+    Price       float64        `json:"price" db:"price"`
+    Stock       int            `json:"stock" db:"stock"`
+    Status      ProductStatus  `json:"status" db:"status"`
+    CategoryID  *int64         `json:"categoryId,omitempty" db:"category_id"`
+    Category    *Category      `json:"category,omitempty" db:"-"`
+    Tags        []string       `json:"tags" db:"-"`
+    Active      bool           `json:"active" db:"active"`
+    CreatedAt   time.Time      `json:"createdAt" db:"created_at"`
+    UpdatedAt   time.Time      `json:"updatedAt" db:"updated_at"`
+    Version     int64          `json:"version" db:"version"`
+}
+
+type ProductStatus string
+
+const (
+    ProductStatusDraft     ProductStatus = "DRAFT"
+    ProductStatusPublished ProductStatus = "PUBLISHED"
+    ProductStatusArchived  ProductStatus = "ARCHIVED"
+)
+
+// Implement driver.Valuer for database storage
+func (s ProductStatus) Value() (driver.Value, error) {
+    return string(s), nil
+}
+
+// Implement sql.Scanner for database retrieval
+func (s *ProductStatus) Scan(value interface{}) error {
+    if value == nil {
+        return nil
+    }
+    *s = ProductStatus(value.(string))
+    return nil
+}
+
+// Validation methods
+func (p *Product) Validate() error {
+    if p.Name == "" || len(p.Name) < 3 || len(p.Name) > 100 {
+        return errors.New("product name must be between 3 and 100 characters")
+    }
+    if p.Description != nil && len(*p.Description) > 500 {
+        return errors.New("description cannot exceed 500 characters")
+    }
+    if p.Price <= 0 {
+        return errors.New("price must be greater than 0")
+    }
+    if p.Stock < 0 {
+        return errors.New("stock cannot be negative")
+    }
+    return nil
+}
+
+// Category entity
+type Category struct {
+    ID        int64     `json:"id" db:"id"`
+    Name      string    `json:"name" db:"name"`
+    CreatedAt time.Time `json:"createdAt" db:"created_at"`
+    UpdatedAt time.Time `json:"updatedAt" db:"updated_at"`
+}
+```
+
+## Data Transfer Objects (DTOs)
+
+### Spring Boot DTOs
+
+```java
+// src/main/java/com/example/demo/dto/ProductDto.java
+package com.example.demo.dto;
+
+import javax.validation.constraints.*;
+import lombok.Data;
+import java.math.BigDecimal;
+import java.util.Set;
+
+@Data
+public class CreateProductDto {
+    @NotBlank(message = "Product name is required")
+    @Size(min = 3, max = 100)
+    private String name;
+    
+    @Size(max = 500)
+    private String description;
+    
+    @NotNull(message = "Price is required")
+    @DecimalMin(value = "0.0", inclusive = false)
+    @Digits(integer = 10, fraction = 2)
+    private BigDecimal price;
+    
+    @Min(0)
+    private Integer stock = 0;
+    
+    private Long categoryId;
+    
+    private Set<String> tags;
+}
+
+@Data
+public class UpdateProductDto {
+    @Size(min = 3, max = 100)
+    private String name;
+    
+    @Size(max = 500)
+    private String description;
+    
+    @DecimalMin(value = "0.0", inclusive = false)
+    @Digits(integer = 10, fraction = 2)
+    private BigDecimal price;
+    
+    @Min(0)
+    private Integer stock;
+    
+    private Long categoryId;
+    
+    private Set<String> tags;
+    
+    private ProductStatus status;
+}
+
+@Data
+public class ProductResponseDto {
+    private Long id;
+    private String name;
+    private String description;
+    private BigDecimal price;
+    private Integer stock;
+    private ProductStatus status;
+    private CategoryDto category;
+    private Set<String> tags;
+    private Boolean active;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+}
+
+// Pageable request
+@Data
+public class PageRequest {
+    @Min(0)
+    private int page = 0;
+    
+    @Min(1)
+    @Max(100)
+    private int size = 20;
+    
+    private String sort = "id";
+    private String direction = "ASC";
+}
+```
+
+### GIMBAP DTOs
+
+```go
+// internal/dto/product.go
+package dto
+
+import (
+    "myapp/internal/entity"
+    "time"
+)
+
+type CreateProductDto struct {
+    Name        string   `json:"name" binding:"required,min=3,max=100"`
+    Description *string  `json:"description,omitempty" binding:"omitempty,max=500"`
+    Price       float64  `json:"price" binding:"required,gt=0"`
+    Stock       int      `json:"stock" binding:"min=0"`
+    CategoryID  *int64   `json:"categoryId,omitempty"`
+    Tags        []string `json:"tags,omitempty"`
+}
+
+type UpdateProductDto struct {
+    Name        *string               `json:"name,omitempty" binding:"omitempty,min=3,max=100"`
+    Description *string               `json:"description,omitempty" binding:"omitempty,max=500"`
+    Price       *float64              `json:"price,omitempty" binding:"omitempty,gt=0"`
+    Stock       *int                  `json:"stock,omitempty" binding:"omitempty,min=0"`
+    CategoryID  *int64                `json:"categoryId,omitempty"`
+    Tags        []string              `json:"tags,omitempty"`
+    Status      *entity.ProductStatus `json:"status,omitempty"`
+}
+
+type ProductResponseDto struct {
+    ID          int64                `json:"id"`
+    Name        string               `json:"name"`
+    Description *string              `json:"description,omitempty"`
+    Price       float64              `json:"price"`
+    Stock       int                  `json:"stock"`
+    Status      entity.ProductStatus `json:"status"`
+    Category    *CategoryDto         `json:"category,omitempty"`
+    Tags        []string             `json:"tags"`
+    Active      bool                 `json:"active"`
+    CreatedAt   time.Time            `json:"createdAt"`
+    UpdatedAt   time.Time            `json:"updatedAt"`
+}
+
+type CategoryDto struct {
+    ID   int64  `json:"id"`
+    Name string `json:"name"`
+}
+
+// Pagination
+type PageRequest struct {
+    Page      int    `form:"page,default=0" binding:"min=0"`
+    Size      int    `form:"size,default=20" binding:"min=1,max=100"`
+    Sort      string `form:"sort,default=id"`
+    Direction string `form:"direction,default=ASC" binding:"oneof=ASC DESC"`
+}
+
+type PageResponse struct {
+    Content       interface{} `json:"content"`
+    TotalElements int64       `json:"totalElements"`
+    TotalPages    int         `json:"totalPages"`
+    Page          int         `json:"page"`
+    Size          int         `json:"size"`
+}
+
+// Conversion functions
+func (dto CreateProductDto) ToEntity() *entity.Product {
+    return &entity.Product{
+        Name:        dto.Name,
+        Description: dto.Description,
+        Price:       dto.Price,
+        Stock:       dto.Stock,
+        CategoryID:  dto.CategoryID,
+        Tags:        dto.Tags,
+        Status:      entity.ProductStatusDraft,
+        Active:      true,
+    }
+}
+
+func ToProductResponse(product *entity.Product) ProductResponseDto {
+    response := ProductResponseDto{
+        ID:          product.ID,
+        Name:        product.Name,
+        Description: product.Description,
+        Price:       product.Price,
+        Stock:       product.Stock,
+        Status:      product.Status,
+        Tags:        product.Tags,
+        Active:      product.Active,
+        CreatedAt:   product.CreatedAt,
+        UpdatedAt:   product.UpdatedAt,
+    }
+    
+    if product.Category != nil {
+        response.Category = &CategoryDto{
+            ID:   product.Category.ID,
+            Name: product.Category.Name,
+        }
+    }
+    
+    return response
+}
+```
+
+## Repository Layer
+
+### Spring Boot JPA Repository
+
+```java
+// src/main/java/com/example/demo/repository/ProductRepository.java
+package com.example.demo.repository;
+
+import com.example.demo.entity.Product;
+import com.example.demo.entity.ProductStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface ProductRepository extends JpaRepository<Product, Long> {
+    
+    Optional<Product> findByName(String name);
+    
+    List<Product> findByStatus(ProductStatus status);
+    
+    Page<Product> findByActiveTrue(Pageable pageable);
+    
+    @Query("SELECT p FROM Product p WHERE p.price BETWEEN :minPrice AND :maxPrice")
+    List<Product> findByPriceRange(@Param("minPrice") BigDecimal minPrice, 
+                                   @Param("maxPrice") BigDecimal maxPrice);
+    
+    @Query(value = "SELECT * FROM products WHERE LOWER(name) LIKE LOWER(CONCAT('%', :keyword, '%'))",
+           nativeQuery = true)
+    List<Product> searchByName(@Param("keyword") String keyword);
+    
+    @Modifying
+    @Query("UPDATE Product p SET p.stock = p.stock - :quantity WHERE p.id = :id AND p.stock >= :quantity")
+    int decrementStock(@Param("id") Long id, @Param("quantity") int quantity);
+    
+    // Using named query
+    List<Product> findActiveProducts();
+    
+    // Custom specification queries handled by JpaSpecificationExecutor
+    // Complex queries with Criteria API
+}
+```
+
+### GIMBAP Repository
+
+```go
+// internal/repository/product.go
+package repository
+
+import (
+    "database/sql"
+    "fmt"
+    "strings"
+    "time"
+    
+    "github.com/jhseong7/gimbap"
+    "github.com/lib/pq"
+    
+    "myapp/internal/entity"
+    "myapp/internal/dto"
+)
+
+type ProductRepository struct {
+    db *sql.DB
+}
+
+func NewProductRepository(dataSource *DataSource) *ProductRepository {
+    return &ProductRepository{
+        db: dataSource.GetDB(),
+    }
+}
+
+// Basic CRUD operations
+func (r *ProductRepository) Create(product *entity.Product) (*entity.Product, error) {
+    query := `
+        INSERT INTO products (name, description, price, stock, status, category_id, active)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id, created_at, updated_at, version
+    `
+    
+    err := r.db.QueryRow(
+        query,
+        product.Name,
+        product.Description,
+        product.Price,
+        product.Stock,
+        product.Status,
+        product.CategoryID,
+        product.Active,
+    ).Scan(&product.ID, &product.CreatedAt, &product.UpdatedAt, &product.Version)
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    // Save tags separately
+    if len(product.Tags) > 0 {
+        if err := r.saveTags(product.ID, product.Tags); err != nil {
+            return nil, err
+        }
+    }
+    
+    return product, nil
+}
+
+func (r *ProductRepository) FindByID(id int64) (*entity.Product, error) {
+    query := `
+        SELECT p.id, p.name, p.description, p.price, p.stock, p.status, 
+               p.category_id, p.active, p.created_at, p.updated_at, p.version,
+               c.id, c.name
+        FROM products p
+        LEFT JOIN categories c ON p.category_id = c.id
+        WHERE p.id = $1
+    `
+    
+    var product entity.Product
+    var category entity.Category
+    var categoryID sql.NullInt64
+    
+    err := r.db.QueryRow(query, id).Scan(
+        &product.ID,
+        &product.Name,
+        &product.Description,
+        &product.Price,
+        &product.Stock,
+        &product.Status,
+        &categoryID,
+        &product.Active,
+        &product.CreatedAt,
+        &product.UpdatedAt,
+        &product.Version,
+        &category.ID,
+        &category.Name,
+    )
+    
+    if err == sql.ErrNoRows {
+        return nil, nil
+    }
+    if err != nil {
+        return nil, err
+    }
+    
+    if categoryID.Valid {
+        product.CategoryID = &categoryID.Int64
+        product.Category = &category
+    }
+    
+    // Load tags
+    tags, err := r.loadTags(product.ID)
+    if err != nil {
+        return nil, err
+    }
+    product.Tags = tags
+    
+    return &product, nil
+}
+
+func (r *ProductRepository) FindAll(page dto.PageRequest) (*dto.PageResponse, error) {
+    // Count total elements
+    var total int64
+    countQuery := "SELECT COUNT(*) FROM products WHERE active = true"
+    if err := r.db.QueryRow(countQuery).Scan(&total); err != nil {
+        return nil, err
+    }
+    
+    // Build query with pagination
+    offset := page.Page * page.Size
+    query := fmt.Sprintf(`
+        SELECT p.id, p.name, p.description, p.price, p.stock, p.status, 
+               p.category_id, p.active, p.created_at, p.updated_at
+        FROM products p
+        WHERE p.active = true
+        ORDER BY p.%s %s
+        LIMIT $1 OFFSET $2
+    `, page.Sort, page.Direction)
+    
+    rows, err := r.db.Query(query, page.Size, offset)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    
+    products := make([]entity.Product, 0)
+    for rows.Next() {
+        var product entity.Product
+        err := rows.Scan(
+            &product.ID,
+            &product.Name,
+            &product.Description,
+            &product.Price,
+            &product.Stock,
+            &product.Status,
+            &product.CategoryID,
+            &product.Active,
+            &product.CreatedAt,
+            &product.UpdatedAt,
+        )
+        if err != nil {
+            return nil, err
+        }
+        products = append(products, product)
+    }
+    
+    totalPages := int(total) / page.Size
+    if int(total)%page.Size > 0 {
+        totalPages++
+    }
+    
+    return &dto.PageResponse{
+        Content:       products,
+        TotalElements: total,
+        TotalPages:    totalPages,
+        Page:          page.Page,
+        Size:          page.Size,
+    }, nil
+}
+
+func (r *ProductRepository) Update(id int64, product *entity.Product) (*entity.Product, error) {
+    query := `
+        UPDATE products 
+        SET name = $2, description = $3, price = $4, stock = $5, 
+            status = $6, category_id = $7, updated_at = $8, version = version + 1
+        WHERE id = $1 AND version = $9
+        RETURNING updated_at, version
+    `
+    
+    err := r.db.QueryRow(
+        query,
+        id,
+        product.Name,
+        product.Description,
+        product.Price,
+        product.Stock,
+        product.Status,
+        product.CategoryID,
+        time.Now(),
+        product.Version,
+    ).Scan(&product.UpdatedAt, &product.Version)
+    
+    if err == sql.ErrNoRows {
+        return nil, fmt.Errorf("product not found or version mismatch")
+    }
+    if err != nil {
+        return nil, err
+    }
+    
+    product.ID = id
+    return product, nil
+}
+
+func (r *ProductRepository) Delete(id int64) error {
+    query := "DELETE FROM products WHERE id = $1"
+    result, err := r.db.Exec(query, id)
+    if err != nil {
+        return err
+    }
+    
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+    
+    if rowsAffected == 0 {
+        return fmt.Errorf("product not found")
+    }
+    
+    return nil
+}
+
+// Custom query methods
+func (r *ProductRepository) FindByName(name string) (*entity.Product, error) {
+    query := `
+        SELECT id, name, description, price, stock, status, 
+               category_id, active, created_at, updated_at, version
+        FROM products
+        WHERE name = $1
+    `
+    
+    var product entity.Product
+    err := r.db.QueryRow(query, name).Scan(
+        &product.ID,
+        &product.Name,
+        &product.Description,
+        &product.Price,
+        &product.Stock,
+        &product.Status,
+        &product.CategoryID,
+        &product.Active,
+        &product.CreatedAt,
+        &product.UpdatedAt,
+        &product.Version,
+    )
+    
+    if err == sql.ErrNoRows {
+        return nil, nil
+    }
+    if err != nil {
+        return nil, err
+    }
+    
+    return &product, nil
+}
+
+func (r *ProductRepository) FindByStatus(status entity.ProductStatus) ([]entity.Product, error) {
+    query := `
+        SELECT id, name, description, price, stock, status, 
+               category_id, active, created_at, updated_at, version
+        FROM products
+        WHERE status = $1
+    `
+    
+    rows, err := r.db.Query(query, status)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    
+    return r.scanProducts(rows)
+}
+
+func (r *ProductRepository) FindByPriceRange(minPrice, maxPrice float64) ([]entity.Product, error) {
+    query := `
+        SELECT id, name, description, price, stock, status, 
+               category_id, active, created_at, updated_at, version
+        FROM products
+        WHERE price BETWEEN $1 AND $2
+    `
+    
+    rows, err := r.db.Query(query, minPrice, maxPrice)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    
+    return r.scanProducts(rows)
+}
+
+func (r *ProductRepository) SearchByName(keyword string) ([]entity.Product, error) {
+    query := `
+        SELECT id, name, description, price, stock, status, 
+               category_id, active, created_at, updated_at, version
+        FROM products
+        WHERE LOWER(name) LIKE LOWER($1)
+    `
+    
+    rows, err := r.db.Query(query, "%"+keyword+"%")
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    
+    return r.scanProducts(rows)
+}
+
+func (r *ProductRepository) DecrementStock(id int64, quantity int) error {
+    query := `
+        UPDATE products 
+        SET stock = stock - $2, updated_at = $3
+        WHERE id = $1 AND stock >= $2
+    `
+    
+    result, err := r.db.Exec(query, id, quantity, time.Now())
+    if err != nil {
+        return err
+    }
+    
+    rowsAffected, err := result.RowsAffected()
+    if err != nil {
+        return err
+    }
+    
+    if rowsAffected == 0 {
+        return fmt.Errorf("insufficient stock or product not found")
+    }
+    
+    return nil
+}
+
+// Helper methods
+func (r *ProductRepository) saveTags(productID int64, tags []string) error {
+    query := `INSERT INTO product_tags (product_id, tag) VALUES ($1, $2)`
+    
+    for _, tag := range tags {
+        if _, err := r.db.Exec(query, productID, tag); err != nil {
+            return err
+        }
+    }
+    
+    return nil
+}
+
+func (r *ProductRepository) loadTags(productID int64) ([]string, error) {
+    query := `SELECT tag FROM product_tags WHERE product_id = $1`
+    
+    rows, err := r.db.Query(query, productID)
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+    
+    tags := make([]string, 0)
+    for rows.Next() {
+        var tag string
+        if err := rows.Scan(&tag); err != nil {
+            return nil, err
+        }
+        tags = append(tags, tag)
+    }
+    
+    return tags, nil
+}
+
+func (r *ProductRepository) scanProducts(rows *sql.Rows) ([]entity.Product, error) {
+    products := make([]entity.Product, 0)
+    
+    for rows.Next() {
+        var product entity.Product
+        err := rows.Scan(
+            &product.ID,
+            &product.Name,
+            &product.Description,
+            &product.Price,
+            &product.Stock,
+            &product.Status,
+            &product.CategoryID,
+            &product.Active,
+            &product.CreatedAt,
+            &product.UpdatedAt,
+            &product.Version,
+        )
+        if err != nil {
+            return nil, err
+        }
+        products = append(products, product)
+    }
+    
+    return products, nil
+}
+
+var ProductRepositoryProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "ProductRepository",
+    Instantiator: NewProductRepository,
+})
+```
+
+## Service Layer
+
+### Spring Boot Service
+
+```java
+// src/main/java/com/example/demo/service/ProductService.java
+package com.example.demo.service;
+
+import com.example.demo.dto.*;
+import com.example.demo.entity.Product;
+import com.example.demo.entity.Category;
+import com.example.demo.exception.ResourceNotFoundException;
+import com.example.demo.exception.BusinessException;
+import com.example.demo.repository.ProductRepository;
+import com.example.demo.repository.CategoryRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class ProductService {
+    
+    private final ProductRepository productRepository;
+    private final CategoryRepository categoryRepository;
+    private final ProductMapper productMapper;
+    
+    @Transactional
+    public ProductResponseDto createProduct(CreateProductDto dto) {
+        // Check if product name already exists
+        if (productRepository.findByName(dto.getName()).isPresent()) {
+            throw new BusinessException("Product with name already exists");
+        }
+        
+        Product product = productMapper.toEntity(dto);
+        
+        // Set category if provided
+        if (dto.getCategoryId() != null) {
+            Category category = categoryRepository.findById(dto.getCategoryId())
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+            product.setCategory(category);
+        }
+        
+        Product saved = productRepository.save(product);
+        return productMapper.toResponseDto(saved);
+    }
+    
+    public ProductResponseDto getProduct(Long id) {
+        Product product = productRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        return productMapper.toResponseDto(product);
+    }
+    
+    public Page<ProductResponseDto> getProducts(PageRequest pageRequest) {
+        Page<Product> products = productRepository.findByActiveTrue(
+            PageRequest.of(
+                pageRequest.getPage(),
+                pageRequest.getSize(),
+                Sort.by(Sort.Direction.fromString(pageRequest.getDirection()), 
+                       pageRequest.getSort())
+            )
+        );
+        
+        return products.map(productMapper::toResponseDto);
+    }
+    
+    @Transactional
+    public ProductResponseDto updateProduct(Long id, UpdateProductDto dto) {
+        Product product = productRepository.findById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+        
+        productMapper.updateEntity(product, dto);
+        
+        if (dto.getCategoryId() != null) {
+            Category category = categoryRepository.findById(dto.getCategoryId())
+                .orElseThrow(() -> new ResourceNotFoundException("Category not found"));
+            product.setCategory(category);
+        }
+        
+        Product updated = productRepository.save(product);
+        return productMapper.toResponseDto(updated);
+    }
+    
+    @Transactional
+    public void deleteProduct(Long id) {
+        if (!productRepository.existsById(id)) {
+            throw new ResourceNotFoundException("Product not found");
+        }
+        productRepository.deleteById(id);
+    }
+    
+    public List<ProductResponseDto> searchProducts(String keyword) {
+        List<Product> products = productRepository.searchByName(keyword);
+        return products.stream()
+            .map(productMapper::toResponseDto)
+            .collect(Collectors.toList());
+    }
+    
+    @Transactional
+    public void decrementStock(Long productId, int quantity) {
+        int updated = productRepository.decrementStock(productId, quantity);
+        if (updated == 0) {
+            throw new BusinessException("Insufficient stock");
+        }
+    }
+}
+```
+
+### GIMBAP Service
+
+```go
+// internal/service/product.go
+package service
+
+import (
+    "fmt"
+    
+    "github.com/jhseong7/gimbap"
+    
+    "myapp/internal/dto"
+    "myapp/internal/entity"
+    "myapp/internal/repository"
+)
+
+type ProductService struct {
+    productRepo  *repository.ProductRepository
+    categoryRepo *repository.CategoryRepository
+}
+
+func NewProductService(
+    productRepo *repository.ProductRepository,
+    categoryRepo *repository.CategoryRepository,
+) *ProductService {
+    return &ProductService{
+        productRepo:  productRepo,
+        categoryRepo: categoryRepo,
+    }
+}
+
+func (s *ProductService) CreateProduct(createDto dto.CreateProductDto) (*dto.ProductResponseDto, error) {
+    // Check if product name already exists
+    existing, err := s.productRepo.FindByName(createDto.Name)
+    if err != nil {
+        return nil, err
+    }
+    if existing != nil {
+        return nil, &BusinessError{
+            Message: "Product with name already exists",
+            Code:    "PRODUCT_EXISTS",
+        }
+    }
+    
+    // Convert DTO to entity
+    product := createDto.ToEntity()
+    
+    // Validate category if provided
+    if product.CategoryID != nil {
+        category, err := s.categoryRepo.FindByID(*product.CategoryID)
+        if err != nil {
+            return nil, err
+        }
+        if category == nil {
+            return nil, &ResourceNotFoundError{
+                Resource: "Category",
+                ID:       fmt.Sprintf("%d", *product.CategoryID),
+            }
+        }
+        product.Category = category
+    }
+    
+    // Save product
+    saved, err := s.productRepo.Create(product)
+    if err != nil {
+        return nil, err
+    }
+    
+    response := dto.ToProductResponse(saved)
+    return &response, nil
+}
+
+func (s *ProductService) GetProduct(id int64) (*dto.ProductResponseDto, error) {
+    product, err := s.productRepo.FindByID(id)
+    if err != nil {
+        return nil, err
+    }
+    if product == nil {
+        return nil, &ResourceNotFoundError{
+            Resource: "Product",
+            ID:       fmt.Sprintf("%d", id),
+        }
+    }
+    
+    response := dto.ToProductResponse(product)
+    return &response, nil
+}
+
+func (s *ProductService) GetProducts(pageReq dto.PageRequest) (*dto.PageResponse, error) {
+    page, err := s.productRepo.FindAll(pageReq)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Convert products to response DTOs
+    products := page.Content.([]entity.Product)
+    responses := make([]dto.ProductResponseDto, len(products))
+    for i, product := range products {
+        responses[i] = dto.ToProductResponse(&product)
+    }
+    
+    page.Content = responses
+    return page, nil
+}
+
+func (s *ProductService) UpdateProduct(id int64, updateDto dto.UpdateProductDto) (*dto.ProductResponseDto, error) {
+    // Get existing product
+    existing, err := s.productRepo.FindByID(id)
+    if err != nil {
+        return nil, err
+    }
+    if existing == nil {
+        return nil, &ResourceNotFoundError{
+            Resource: "Product",
+            ID:       fmt.Sprintf("%d", id),
+        }
+    }
+    
+    // Apply updates
+    if updateDto.Name != nil {
+        existing.Name = *updateDto.Name
+    }
+    if updateDto.Description != nil {
+        existing.Description = updateDto.Description
+    }
+    if updateDto.Price != nil {
+        existing.Price = *updateDto.Price
+    }
+    if updateDto.Stock != nil {
+        existing.Stock = *updateDto.Stock
+    }
+    if updateDto.Status != nil {
+        existing.Status = *updateDto.Status
+    }
+    
+    // Update category if provided
+    if updateDto.CategoryID != nil {
+        category, err := s.categoryRepo.FindByID(*updateDto.CategoryID)
+        if err != nil {
+            return nil, err
+        }
+        if category == nil {
+            return nil, &ResourceNotFoundError{
+                Resource: "Category",
+                ID:       fmt.Sprintf("%d", *updateDto.CategoryID),
+            }
+        }
+        existing.CategoryID = updateDto.CategoryID
+        existing.Category = category
+    }
+    
+    // Save updates
+    updated, err := s.productRepo.Update(id, existing)
+    if err != nil {
+        return nil, err
+    }
+    
+    response := dto.ToProductResponse(updated)
+    return &response, nil
+}
+
+func (s *ProductService) DeleteProduct(id int64) error {
+    // Check if product exists
+    existing, err := s.productRepo.FindByID(id)
+    if err != nil {
+        return err
+    }
+    if existing == nil {
+        return &ResourceNotFoundError{
+            Resource: "Product",
+            ID:       fmt.Sprintf("%d", id),
+        }
+    }
+    
+    return s.productRepo.Delete(id)
+}
+
+func (s *ProductService) SearchProducts(keyword string) ([]dto.ProductResponseDto, error) {
+    products, err := s.productRepo.SearchByName(keyword)
+    if err != nil {
+        return nil, err
+    }
+    
+    responses := make([]dto.ProductResponseDto, len(products))
+    for i, product := range products {
+        responses[i] = dto.ToProductResponse(&product)
+    }
+    
+    return responses, nil
+}
+
+func (s *ProductService) DecrementStock(productID int64, quantity int) error {
+    if quantity <= 0 {
+        return &BusinessError{
+            Message: "Quantity must be positive",
+            Code:    "INVALID_QUANTITY",
+        }
+    }
+    
+    err := s.productRepo.DecrementStock(productID, quantity)
+    if err != nil {
+        return &BusinessError{
+            Message: "Insufficient stock",
+            Code:    "INSUFFICIENT_STOCK",
+        }
+    }
+    
+    return nil
+}
+
+var ProductServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "ProductService",
+    Instantiator: NewProductService,
+})
+
+// Custom error types
+type BusinessError struct {
+    Message string
+    Code    string
+}
+
+func (e *BusinessError) Error() string {
+    return e.Message
+}
+
+type ResourceNotFoundError struct {
+    Resource string
+    ID       string
+}
+
+func (e *ResourceNotFoundError) Error() string {
+    return fmt.Sprintf("%s with ID %s not found", e.Resource, e.ID)
+}
+```
+
+## Controller Layer
+
+### Spring Boot REST Controller
+
+```java
+// src/main/java/com/example/demo/controller/ProductController.java
+package com.example.demo.controller;
+
+import com.example.demo.dto.*;
+import com.example.demo.service.ProductService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
+import javax.validation.constraints.Min;
+import java.util.List;
+
+@RestController
+@RequestMapping("/api/v1/products")
+@RequiredArgsConstructor
+@Validated
+@Tag(name = "Products", description = "Product management APIs")
+public class ProductController {
+    
+    private final ProductService productService;
+    
+    @PostMapping
+    @Operation(summary = "Create a new product")
+    public ResponseEntity<ProductResponseDto> createProduct(
+            @Valid @RequestBody CreateProductDto dto) {
+        ProductResponseDto created = productService.createProduct(dto);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+    
+    @GetMapping("/{id}")
+    @Operation(summary = "Get product by ID")
+    public ResponseEntity<ProductResponseDto> getProduct(
+            @PathVariable @Min(1) Long id) {
+        ProductResponseDto product = productService.getProduct(id);
+        return ResponseEntity.ok(product);
+    }
+    
+    @GetMapping
+    @Operation(summary = "Get all products with pagination")
+    public ResponseEntity<Page<ProductResponseDto>> getProducts(
+            @Valid PageRequest pageRequest) {
+        Page<ProductResponseDto> products = productService.getProducts(pageRequest);
+        return ResponseEntity.ok(products);
+    }
+    
+    @PutMapping("/{id}")
+    @Operation(summary = "Update product")
+    public ResponseEntity<ProductResponseDto> updateProduct(
+            @PathVariable @Min(1) Long id,
+            @Valid @RequestBody UpdateProductDto dto) {
+        ProductResponseDto updated = productService.updateProduct(id, dto);
+        return ResponseEntity.ok(updated);
+    }
+    
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Delete product")
+    public void deleteProduct(@PathVariable @Min(1) Long id) {
+        productService.deleteProduct(id);
+    }
+    
+    @GetMapping("/search")
+    @Operation(summary = "Search products by name")
+    public ResponseEntity<List<ProductResponseDto>> searchProducts(
+            @RequestParam String keyword) {
+        List<ProductResponseDto> products = productService.searchProducts(keyword);
+        return ResponseEntity.ok(products);
+    }
+    
+    @PostMapping("/{id}/decrement-stock")
+    @Operation(summary = "Decrement product stock")
+    public ResponseEntity<Void> decrementStock(
+            @PathVariable @Min(1) Long id,
+            @RequestParam @Min(1) Integer quantity) {
+        productService.decrementStock(id, quantity);
+        return ResponseEntity.ok().build();
+    }
+}
+```
+
+### GIMBAP REST Controller
+
+```go
+// internal/controller/product.go
+package controller
+
+import (
+    "net/http"
+    "strconv"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+    
+    "myapp/internal/dto"
+    "myapp/internal/service"
+)
+
+type ProductController struct {
+    gimbap.IController
+    productService *service.ProductService
+}
+
+func NewProductController(productService *service.ProductService) *ProductController {
+    return &ProductController{
+        productService: productService,
+    }
+}
+
+func (c *ProductController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "POST",
+            Path:    "/",
+            Handler: c.CreateProduct,
+        },
+        {
+            Method:  "GET",
+            Path:    "/:id",
+            Handler: c.GetProduct,
+        },
+        {
+            Method:  "GET",
+            Path:    "/",
+            Handler: c.GetProducts,
+        },
+        {
+            Method:  "PUT",
+            Path:    "/:id",
+            Handler: c.UpdateProduct,
+        },
+        {
+            Method:  "DELETE",
+            Path:    "/:id",
+            Handler: c.DeleteProduct,
+        },
+        {
+            Method:  "GET",
+            Path:    "/search",
+            Handler: c.SearchProducts,
+        },
+        {
+            Method:  "POST",
+            Path:    "/:id/decrement-stock",
+            Handler: c.DecrementStock,
+        },
+    }
+}
+
+// @Summary Create a new product
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Param product body dto.CreateProductDto true "Product data"
+// @Success 201 {object} dto.ProductResponseDto
+// @Failure 400 {object} ErrorResponse
+// @Router /api/v1/products [post]
+func (c *ProductController) CreateProduct(ctx *gin.Context) {
+    var createDto dto.CreateProductDto
+    if err := ctx.ShouldBindJSON(&createDto); err != nil {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error:   "Validation failed",
+            Details: err.Error(),
+        })
+        return
+    }
+    
+    product, err := c.productService.CreateProduct(createDto)
+    if err != nil {
+        handleServiceError(ctx, err)
+        return
+    }
+    
+    ctx.JSON(http.StatusCreated, product)
+}
+
+// @Summary Get product by ID
+// @Tags Products
+// @Produce json
+// @Param id path int true "Product ID" minimum(1)
+// @Success 200 {object} dto.ProductResponseDto
+// @Failure 404 {object} ErrorResponse
+// @Router /api/v1/products/{id} [get]
+func (c *ProductController) GetProduct(ctx *gin.Context) {
+    id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+    if err != nil || id < 1 {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error: "Invalid product ID",
+        })
+        return
+    }
+    
+    product, err := c.productService.GetProduct(id)
+    if err != nil {
+        handleServiceError(ctx, err)
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, product)
+}
+
+// @Summary Get all products with pagination
+// @Tags Products
+// @Produce json
+// @Param page query int false "Page number" default(0) minimum(0)
+// @Param size query int false "Page size" default(20) minimum(1) maximum(100)
+// @Param sort query string false "Sort field" default(id)
+// @Param direction query string false "Sort direction" default(ASC) Enums(ASC, DESC)
+// @Success 200 {object} dto.PageResponse
+// @Router /api/v1/products [get]
+func (c *ProductController) GetProducts(ctx *gin.Context) {
+    var pageReq dto.PageRequest
+    if err := ctx.ShouldBindQuery(&pageReq); err != nil {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error:   "Invalid pagination parameters",
+            Details: err.Error(),
+        })
+        return
+    }
+    
+    products, err := c.productService.GetProducts(pageReq)
+    if err != nil {
+        handleServiceError(ctx, err)
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, products)
+}
+
+// @Summary Update product
+// @Tags Products
+// @Accept json
+// @Produce json
+// @Param id path int true "Product ID" minimum(1)
+// @Param product body dto.UpdateProductDto true "Product update data"
+// @Success 200 {object} dto.ProductResponseDto
+// @Failure 404 {object} ErrorResponse
+// @Router /api/v1/products/{id} [put]
+func (c *ProductController) UpdateProduct(ctx *gin.Context) {
+    id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+    if err != nil || id < 1 {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error: "Invalid product ID",
+        })
+        return
+    }
+    
+    var updateDto dto.UpdateProductDto
+    if err := ctx.ShouldBindJSON(&updateDto); err != nil {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error:   "Validation failed",
+            Details: err.Error(),
+        })
+        return
+    }
+    
+    product, err := c.productService.UpdateProduct(id, updateDto)
+    if err != nil {
+        handleServiceError(ctx, err)
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, product)
+}
+
+// @Summary Delete product
+// @Tags Products
+// @Param id path int true "Product ID" minimum(1)
+// @Success 204
+// @Failure 404 {object} ErrorResponse
+// @Router /api/v1/products/{id} [delete]
+func (c *ProductController) DeleteProduct(ctx *gin.Context) {
+    id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+    if err != nil || id < 1 {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error: "Invalid product ID",
+        })
+        return
+    }
+    
+    if err := c.productService.DeleteProduct(id); err != nil {
+        handleServiceError(ctx, err)
+        return
+    }
+    
+    ctx.Status(http.StatusNoContent)
+}
+
+// @Summary Search products by name
+// @Tags Products
+// @Produce json
+// @Param keyword query string true "Search keyword"
+// @Success 200 {array} dto.ProductResponseDto
+// @Router /api/v1/products/search [get]
+func (c *ProductController) SearchProducts(ctx *gin.Context) {
+    keyword := ctx.Query("keyword")
+    if keyword == "" {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error: "Search keyword is required",
+        })
+        return
+    }
+    
+    products, err := c.productService.SearchProducts(keyword)
+    if err != nil {
+        handleServiceError(ctx, err)
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, products)
+}
+
+// @Summary Decrement product stock
+// @Tags Products
+// @Param id path int true "Product ID" minimum(1)
+// @Param quantity query int true "Quantity to decrement" minimum(1)
+// @Success 200
+// @Failure 400 {object} ErrorResponse
+// @Router /api/v1/products/{id}/decrement-stock [post]
+func (c *ProductController) DecrementStock(ctx *gin.Context) {
+    id, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+    if err != nil || id < 1 {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error: "Invalid product ID",
+        })
+        return
+    }
+    
+    quantityStr := ctx.Query("quantity")
+    quantity, err := strconv.Atoi(quantityStr)
+    if err != nil || quantity < 1 {
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error: "Invalid quantity",
+        })
+        return
+    }
+    
+    if err := c.productService.DecrementStock(id, quantity); err != nil {
+        handleServiceError(ctx, err)
+        return
+    }
+    
+    ctx.Status(http.StatusOK)
+}
+
+var ProductControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "ProductController",
+    Instantiator: NewProductController,
+    RootPath:     "api/v1/products",
+})
+
+// Error handling
+type ErrorResponse struct {
+    Error   string `json:"error"`
+    Details string `json:"details,omitempty"`
+}
+
+func handleServiceError(ctx *gin.Context, err error) {
+    switch e := err.(type) {
+    case *service.ResourceNotFoundError:
+        ctx.JSON(http.StatusNotFound, ErrorResponse{
+            Error: e.Error(),
+        })
+    case *service.BusinessError:
+        ctx.JSON(http.StatusBadRequest, ErrorResponse{
+            Error: e.Message,
+        })
+    default:
+        ctx.JSON(http.StatusInternalServerError, ErrorResponse{
+            Error: "Internal server error",
+        })
+    }
+}
+```
+
+## Exception Handling
+
+### Spring Boot Global Exception Handler
+
+```java
+// src/main/java/com/example/demo/exception/GlobalExceptionHandler.java
+package com.example.demo.exception;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
+
+import javax.validation.ConstraintViolationException;
+import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+
+@RestControllerAdvice
+@Slf4j
+public class GlobalExceptionHandler {
+    
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleResourceNotFound(
+            ResourceNotFoundException ex, WebRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.NOT_FOUND.value())
+            .error("Not Found")
+            .message(ex.getMessage())
+            .path(request.getDescription(false))
+            .build();
+        
+        return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+    }
+    
+    @ExceptionHandler(BusinessException.class)
+    public ResponseEntity<ErrorResponse> handleBusinessException(
+            BusinessException ex, WebRequest request) {
+        ErrorResponse errorResponse = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.BAD_REQUEST.value())
+            .error("Bad Request")
+            .message(ex.getMessage())
+            .path(request.getDescription(false))
+            .build();
+        
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+    
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationExceptions(
+            MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach((error) -> {
+            String fieldName = ((FieldError) error).getField();
+            String errorMessage = error.getDefaultMessage();
+            errors.put(fieldName, errorMessage);
+        });
+        
+        ErrorResponse errorResponse = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.BAD_REQUEST.value())
+            .error("Validation Failed")
+            .message("Invalid input parameters")
+            .validationErrors(errors)
+            .build();
+        
+        return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
+    }
+    
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorResponse> handleGlobalException(
+            Exception ex, WebRequest request) {
+        log.error("Unexpected error", ex);
+        
+        ErrorResponse errorResponse = ErrorResponse.builder()
+            .timestamp(LocalDateTime.now())
+            .status(HttpStatus.INTERNAL_SERVER_ERROR.value())
+            .error("Internal Server Error")
+            .message("An unexpected error occurred")
+            .path(request.getDescription(false))
+            .build();
+        
+        return new ResponseEntity<>(errorResponse, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+}
+
+@Data
+@Builder
+class ErrorResponse {
+    private LocalDateTime timestamp;
+    private int status;
+    private String error;
+    private String message;
+    private String path;
+    private Map<String, String> validationErrors;
+}
+```
+
+### GIMBAP Global Error Handler
+
+```go
+// internal/middleware/error_handler.go
+package middleware
+
+import (
+    "log"
+    "net/http"
+    "time"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/go-playground/validator/v10"
+    
+    "myapp/internal/service"
+)
+
+type ErrorResponse struct {
+    Timestamp        time.Time         `json:"timestamp"`
+    Status           int               `json:"status"`
+    Error            string            `json:"error"`
+    Message          string            `json:"message"`
+    Path             string            `json:"path"`
+    ValidationErrors map[string]string `json:"validationErrors,omitempty"`
+}
+
+func ErrorHandler() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        c.Next()
+        
+        // Check if there were any errors
+        if len(c.Errors) > 0 {
+            err := c.Errors.Last()
+            handleError(c, err.Err)
+            return
+        }
+    }
+}
+
+func handleError(c *gin.Context, err error) {
+    errorResponse := ErrorResponse{
+        Timestamp: time.Now(),
+        Path:      c.Request.URL.Path,
+    }
+    
+    switch e := err.(type) {
+    case *service.ResourceNotFoundError:
+        errorResponse.Status = http.StatusNotFound
+        errorResponse.Error = "Not Found"
+        errorResponse.Message = e.Error()
+        c.JSON(http.StatusNotFound, errorResponse)
+        
+    case *service.BusinessError:
+        errorResponse.Status = http.StatusBadRequest
+        errorResponse.Error = "Bad Request"
+        errorResponse.Message = e.Message
+        c.JSON(http.StatusBadRequest, errorResponse)
+        
+    case validator.ValidationErrors:
+        errorResponse.Status = http.StatusBadRequest
+        errorResponse.Error = "Validation Failed"
+        errorResponse.Message = "Invalid input parameters"
+        errorResponse.ValidationErrors = formatValidationErrors(e)
+        c.JSON(http.StatusBadRequest, errorResponse)
+        
+    default:
+        log.Printf("Unexpected error: %v", err)
+        errorResponse.Status = http.StatusInternalServerError
+        errorResponse.Error = "Internal Server Error"
+        errorResponse.Message = "An unexpected error occurred"
+        c.JSON(http.StatusInternalServerError, errorResponse)
+    }
+}
+
+func formatValidationErrors(errs validator.ValidationErrors) map[string]string {
+    errors := make(map[string]string)
+    
+    for _, err := range errs {
+        field := err.Field()
+        switch err.Tag() {
+        case "required":
+            errors[field] = field + " is required"
+        case "min":
+            errors[field] = field + " must be at least " + err.Param()
+        case "max":
+            errors[field] = field + " must be at most " + err.Param()
+        case "email":
+            errors[field] = field + " must be a valid email"
+        default:
+            errors[field] = field + " is invalid"
+        }
+    }
+    
+    return errors
+}
+
+// Recovery middleware for panics
+func RecoveryMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        defer func() {
+            if err := recover(); err != nil {
+                log.Printf("Panic recovered: %v", err)
+                
+                c.JSON(http.StatusInternalServerError, ErrorResponse{
+                    Timestamp: time.Now(),
+                    Status:    http.StatusInternalServerError,
+                    Error:     "Internal Server Error",
+                    Message:   "An unexpected error occurred",
+                    Path:      c.Request.URL.Path,
+                })
+                c.Abort()
+            }
+        }()
+        
+        c.Next()
+    }
+}
+```
+
+## Module Configuration
+
+```go
+// internal/repository/module.go
+package repository
+
+import "github.com/jhseong7/gimbap"
+
+var DataModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "DataModule",
+    Providers: []*gimbap.Provider{
+        DataSourceProvider,
+        ProductRepositoryProvider,
+        CategoryRepositoryProvider,
+        // Add other repositories
+    },
+})
+
+// internal/service/module.go
+package service
+
+import "github.com/jhseong7/gimbap"
+
+var ServiceModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "ServiceModule",
+    Providers: []*gimbap.Provider{
+        ProductServiceProvider,
+        CategoryServiceProvider,
+        // Add other services
+    },
+})
+
+// internal/controller/module.go
+package controller
+
+import "github.com/jhseong7/gimbap"
+
+var WebModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "WebModule",
+    Controllers: []*gimbap.Controller{
+        ProductControllerProvider,
+        CategoryControllerProvider,
+        // Add other controllers
+    },
+})
+```
+
+## Testing the API
+
+```bash
+# Create a product
+curl -X POST http://localhost:8080/api/v1/products \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "MacBook Pro",
+    "description": "16-inch laptop",
+    "price": 2499.99,
+    "stock": 10,
+    "categoryId": 1,
+    "tags": ["laptop", "apple", "professional"]
+  }'
+
+# Get all products with pagination
+curl "http://localhost:8080/api/v1/products?page=0&size=10&sort=price&direction=DESC"
+
+# Update a product
+curl -X PUT http://localhost:8080/api/v1/products/1 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "price": 2299.99,
+    "stock": 15
+  }'
+
+# Search products
+curl "http://localhost:8080/api/v1/products/search?keyword=macbook"
+
+# Delete a product
+curl -X DELETE http://localhost:8080/api/v1/products/1
+```
+
+## Best Practices
+
+1. **Repository Pattern**
+   - Keep SQL queries in repository layer
+   - Use prepared statements for security
+   - Handle null values properly
+
+2. **Service Layer**
+   - Business logic belongs here
+   - Validate business rules
+   - Handle transactions if needed
+
+3. **DTO Pattern**
+   - Separate request/response from entities
+   - Use validation tags
+   - Provide conversion functions
+
+4. **Error Handling**
+   - Create custom error types
+   - Use consistent error responses
+   - Log errors appropriately
+
+5. **Database Access**
+   - Use connection pooling
+   - Handle database errors gracefully
+   - Consider using an ORM like GORM for complex queries
+
+## Next Steps
+
+- [Spring Security →](./03-security) - Add authentication and authorization
+- [Async Processing →](./04-async-scheduling) - Background jobs and scheduling
+- [Testing →](./06-testing) - Unit and integration testing

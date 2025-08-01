@@ -1,5 +1,4 @@
-import { Module } from "module";
-
 export default {
-  comingsoon: "Coming Soon (WIP)",
+  "nestjs-to-gimbap": "NestJS to GIMBAP Porting Guide",
+  "spring-to-gimbap": "Spring Boot to GIMBAP Porting Guide",
 };

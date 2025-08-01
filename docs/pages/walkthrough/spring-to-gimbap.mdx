@@ -1,0 +1,264 @@
+# Porting Spring Boot Applications to GIMBAP
+
+This comprehensive guide helps Java developers migrate their Spring Boot applications to GIMBAP, maintaining familiar architectural patterns while leveraging Go's performance and simplicity.
+
+## Overview
+
+Spring Boot and GIMBAP share fundamental principles:
+- Dependency Injection (DI) at the core
+- Modular architecture
+- Convention over configuration (with different approaches)
+- Enterprise-ready features
+
+### Philosophical Differences
+
+| Aspect | Spring Boot | GIMBAP |
+|--------|------------|---------|
+| Configuration | Annotation-driven with magic | Explicit registration |
+| DI Container | Runtime reflection | Compile-time safety |
+| Component Discovery | Classpath scanning | Manual module definition |
+| Type System | Runtime + compile-time | Compile-time only |
+| Concurrency | Thread pools & executors | Goroutines & channels |
+| Memory Model | JVM garbage collection | Go garbage collection |
+
+## Getting Started
+
+### Prerequisites
+
+- Solid understanding of Spring Boot concepts
+- Go 1.21+ installed
+- Basic knowledge of Go syntax and idioms
+- Understanding of pointers in Go
+
+### Migration Strategy
+
+1. **Start Small**: Begin with a single microservice or module
+2. **Maintain Architecture**: Keep your layered architecture (Controller → Service → Repository)
+3. **Gradual Migration**: Run Spring Boot and GIMBAP services side by side
+4. **Test Thoroughly**: Go's type system will catch many errors at compile time
+
+## Key Concept Mappings
+
+### Annotations to Functions
+
+| Spring Boot | GIMBAP | Purpose |
+|-------------|---------|----------|
+| `@SpringBootApplication` | `gimbap.CreateApp()` | Application entry point |
+| `@Component/@Service` | `DefineProvider()` | Injectable component |
+| `@RestController` | `DefineController()` | HTTP endpoint handler |
+| `@Configuration` | `DefineModule()` | Configuration class |
+| `@Bean` | Provider function | Bean definition |
+| `@Autowired` | Constructor params | Dependency injection |
+| `@Value("${...}")` | Config service | Property injection |
+| `@RequestMapping` | `GetRouteSpecs()` | Route mapping |
+
+### Project Structure Comparison
+
+#### Spring Boot Structure
+```
+src/main/java/
+├── com/example/app/
+│   ├── Application.java          # @SpringBootApplication
+│   ├── config/                   # @Configuration classes
+│   ├── controller/               # @RestController classes
+│   ├── service/                  # @Service classes
+│   ├── repository/               # @Repository interfaces
+│   ├── entity/                   # JPA entities
+│   └── dto/                      # Data transfer objects
+src/main/resources/
+├── application.yml               # Configuration
+└── application-{profile}.yml     # Profile-specific config
+```
+
+#### GIMBAP Structure
+```
+cmd/
+├── main.go                       # Application entry point
+internal/
+├── app/
+│   └── module.go                # Root module definition
+├── config/
+│   ├── config.go                # Configuration structs
+│   └── module.go                # Config module
+├── controller/                   # HTTP controllers
+├── service/                      # Business logic
+├── repository/                   # Data access
+├── entity/                       # Domain models
+└── dto/                         # Data transfer objects
+```
+
+## Step-by-Step Migration Guides
+
+### 1. [Bootstrap and Configuration](./spring-to-gimbap/01-bootstrap)
+Learn how to convert your Spring Boot application startup and configuration:
+- Main application class conversion
+- Configuration management (`application.yml` → struct-based config)
+- Property injection patterns
+- Profile-based configuration
+- Component scanning alternatives
+
+### 2. [REST API with Repository Pattern](./spring-to-gimbap/02-rest-api)
+Convert a complete REST API with data persistence:
+- REST controllers with all HTTP methods
+- Service layer with business logic
+- Repository pattern implementation
+- Data validation and binding
+- Exception handling and error responses
+- JPA alternatives in Go
+
+### 3. [Spring Security to GIMBAP Auth](./spring-to-gimbap/03-security)
+Implement authentication and authorization:
+- Security configuration conversion
+- JWT authentication
+- User details service
+- Password encoding
+- Method-level security
+- CORS configuration
+
+### 4. [Async Processing and Scheduling](./spring-to-gimbap/04-async-scheduling)
+Convert asynchronous patterns and scheduled tasks:
+- `@Async` methods to goroutines
+- `CompletableFuture` to channels
+- `@Scheduled` tasks with cron
+- Event-driven architecture
+- Message queue integration
+
+### 5. [Advanced Spring Patterns](./spring-to-gimbap/05-advanced)
+Handle advanced Spring Boot features:
+- Aspect-Oriented Programming (AOP)
+- Caching annotations
+- Actuator endpoints
+- WebSocket support
+- RestTemplate/WebClient patterns
+
+### 6. [Testing Strategies](./spring-to-gimbap/06-testing)
+Migrate your test suite:
+- Unit testing with mocks
+- Integration testing
+- Controller testing
+- Repository testing
+- Test configuration
+
+## Coming Soon
+
+The following Spring Boot features are planned for future GIMBAP releases:
+
+### Spring Data JPA
+- Full ORM support with GORM integration
+- Query method generation
+- Specifications API
+- Auditing support
+
+### Spring Cloud
+- Service discovery (Eureka/Consul)
+- Configuration server
+- Circuit breakers (Hystrix patterns)
+- API Gateway patterns
+
+### Spring Batch
+- Batch job framework
+- Step-based processing
+- Job scheduling
+- Chunk processing
+
+### Reactive Spring
+- WebFlux patterns
+- Reactive streams
+- Backpressure handling
+- Non-blocking I/O
+
+## Migration Checklist
+
+Before starting your migration:
+
+- [ ] **Assess Complexity**
+  - [ ] Identify Spring-specific features used
+  - [ ] List external dependencies
+  - [ ] Document integration points
+
+- [ ] **Plan Architecture**
+  - [ ] Map Spring beans to GIMBAP providers
+  - [ ] Design module structure
+  - [ ] Plan configuration strategy
+
+- [ ] **Set Up Development**
+  - [ ] Install Go toolchain
+  - [ ] Set up IDE with Go support
+  - [ ] Configure linting and formatting
+
+- [ ] **Start Migration**
+  - [ ] Begin with configuration
+  - [ ] Port domain models
+  - [ ] Implement repositories
+  - [ ] Convert services
+  - [ ] Migrate controllers
+  - [ ] Add authentication
+
+- [ ] **Testing & Deployment**
+  - [ ] Write comprehensive tests
+  - [ ] Set up CI/CD pipeline
+  - [ ] Plan deployment strategy
+
+## Best Practices
+
+### 1. Embrace Go Idioms
+- Use errors instead of exceptions
+- Leverage interfaces for abstraction
+- Keep it simple and explicit
+
+### 2. Type Safety
+- Always check pointer vs value types
+- Use compile-time checks
+- Avoid interface{} when possible
+
+### 3. Concurrency
+- Use goroutines wisely
+- Communicate via channels
+- Avoid shared state
+
+### 4. Testing
+- Write table-driven tests
+- Use interfaces for mocking
+- Test early and often
+
+## Common Pitfalls
+
+### 1. Assuming Magic
+Spring Boot does a lot behind the scenes. GIMBAP requires explicit configuration.
+
+### 2. Pointer Confusion
+```go
+// Wrong - loses reference
+type Service struct {
+    repo Repository  // Should be *Repository
+}
+
+// Correct
+type Service struct {
+    repo *Repository
+}
+```
+
+### 3. Ignoring Error Handling
+Go requires explicit error handling:
+```go
+// Java: throws exception
+// Go: returns error
+user, err := service.GetUser(id)
+if err != nil {
+    // Handle error
+}
+```
+
+### 4. Overusing Goroutines
+Not every `@Async` method needs a goroutine. Consider the overhead.
+
+## Need Help?
+
+- Review the [GIMBAP documentation](/gettingstarted/installation)
+- Check [example projects](/sampleprojects)
+- Refer to the detailed guides linked above
+
+---
+
+Ready to start migrating? Begin with [Bootstrap and Configuration →](./spring-to-gimbap/01-bootstrap)

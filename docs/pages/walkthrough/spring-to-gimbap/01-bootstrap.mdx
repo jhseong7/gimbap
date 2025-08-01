@@ -1,0 +1,933 @@
+# Step 1: Bootstrap and Configuration
+
+This guide walks through converting a Spring Boot application's bootstrap process and configuration management to GIMBAP.
+
+## Converting the Main Application Class
+
+### Spring Boot Application
+
+In Spring Boot, your application starts with a class annotated with `@SpringBootApplication`:
+
+```java
+// src/main/java/com/example/demo/DemoApplication.java
+package com.example.demo;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.Bean;
+import org.springframework.web.client.RestTemplate;
+
+@SpringBootApplication
+@EnableScheduling
+@EnableAsync
+public class DemoApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(DemoApplication.class, args);
+    }
+    
+    @Bean
+    public RestTemplate restTemplate() {
+        return new RestTemplate();
+    }
+    
+    @Bean
+    public ExecutorService taskExecutor() {
+        return Executors.newFixedThreadPool(10);
+    }
+}
+```
+
+### GIMBAP Application
+
+In GIMBAP, the equivalent bootstrap process:
+
+```go
+// cmd/main.go
+package main
+
+import (
+    "log"
+    "net/http"
+    "os"
+    "os/signal"
+    "syscall"
+    
+    "github.com/jhseong7/gimbap"
+    "github.com/jhseong7/gimbap/engine/gin"
+    "myapp/internal/app"
+)
+
+func main() {
+    // Create application with configuration
+    application := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "DemoApplication",
+        AppModule:    app.RootModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+    
+    // Add global middleware
+    application.AddMiddleware(
+        app.LoggingMiddleware(),
+        app.ErrorHandlerMiddleware(),
+    )
+    
+    // Handle graceful shutdown
+    go handleShutdown(application)
+    
+    // Start the application
+    log.Println("Starting DemoApplication...")
+    application.RunWithOptions(gimbap.RuntimeOptions{
+        Port: getPort(),
+    })
+}
+
+func handleShutdown(app *gimbap.App) {
+    sigChan := make(chan os.Signal, 1)
+    signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+    <-sigChan
+    
+    log.Println("Shutting down gracefully...")
+    app.Stop()
+}
+
+func getPort() int {
+    port := os.Getenv("PORT")
+    if port == "" {
+        return 8080
+    }
+    // Convert string to int...
+    return 8080
+}
+
+// Providers for common beans
+// internal/app/providers.go
+package app
+
+import (
+    "net/http"
+    "time"
+    "github.com/jhseong7/gimbap"
+)
+
+// RestTemplate equivalent - HTTP Client
+type HttpClient struct {
+    client *http.Client
+}
+
+func NewHttpClient() *HttpClient {
+    return &HttpClient{
+        client: &http.Client{
+            Timeout: 30 * time.Second,
+        },
+    }
+}
+
+var HttpClientProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "HttpClient",
+    Instantiator: NewHttpClient,
+})
+```
+
+## Configuration Management
+
+### Spring Boot Configuration
+
+Spring Boot uses `application.properties` or `application.yml`:
+
+```yaml
+# src/main/resources/application.yml
+spring:
+  application:
+    name: demo-application
+  datasource:
+    url: jdbc:postgresql://localhost:5432/demo
+    username: ${DB_USERNAME:demo}
+    password: ${DB_PASSWORD:demo}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /api
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:my-secret-key}
+    expiration: 86400
+  cors:
+    allowed-origins:
+      - http://localhost:3000
+      - https://example.com
+  features:
+    enable-cache: true
+    cache-ttl: 300
+
+---
+spring:
+  profiles: production
+  datasource:
+    url: ${DATABASE_URL}
+```
+
+### GIMBAP Configuration
+
+In GIMBAP, use struct-based configuration:
+
+```go
+// internal/config/config.go
+package config
+
+import (
+    "os"
+    "strconv"
+    "strings"
+    "github.com/jhseong7/gimbap"
+)
+
+// Configuration structs matching the YAML structure
+type Config struct {
+    App        AppConfig
+    Server     ServerConfig
+    Database   DatabaseConfig
+    JWT        JWTConfig
+    CORS       CORSConfig
+    Features   FeaturesConfig
+}
+
+type AppConfig struct {
+    Name        string
+    Environment string
+}
+
+type ServerConfig struct {
+    Port        int
+    ContextPath string
+}
+
+type DatabaseConfig struct {
+    URL      string
+    Username string
+    Password string
+    Pool     PoolConfig
+}
+
+type PoolConfig struct {
+    MaxSize     int
+    MinIdle     int
+}
+
+type JWTConfig struct {
+    Secret     string
+    Expiration int
+}
+
+type CORSConfig struct {
+    AllowedOrigins []string
+}
+
+type FeaturesConfig struct {
+    EnableCache bool
+    CacheTTL    int
+}
+
+// ConfigService provides configuration to other services
+type ConfigService struct {
+    config *Config
+}
+
+func NewConfigService() *ConfigService {
+    return &ConfigService{
+        config: loadConfig(),
+    }
+}
+
+func loadConfig() *Config {
+    env := getEnv("APP_ENV", "development")
+    
+    config := &Config{
+        App: AppConfig{
+            Name:        "demo-application",
+            Environment: env,
+        },
+        Server: ServerConfig{
+            Port:        getEnvAsInt("PORT", 8080),
+            ContextPath: "/api",
+        },
+        Database: DatabaseConfig{
+            URL:      getEnv("DATABASE_URL", "postgres://localhost:5432/demo"),
+            Username: getEnv("DB_USERNAME", "demo"),
+            Password: getEnv("DB_PASSWORD", "demo"),
+            Pool: PoolConfig{
+                MaxSize: getEnvAsInt("DB_POOL_MAX", 10),
+                MinIdle: getEnvAsInt("DB_POOL_MIN", 5),
+            },
+        },
+        JWT: JWTConfig{
+            Secret:     getEnv("JWT_SECRET", "my-secret-key"),
+            Expiration: getEnvAsInt("JWT_EXPIRATION", 86400),
+        },
+        CORS: CORSConfig{
+            AllowedOrigins: getEnvAsSlice("CORS_ORIGINS", 
+                []string{"http://localhost:3000", "https://example.com"}),
+        },
+        Features: FeaturesConfig{
+            EnableCache: getEnvAsBool("ENABLE_CACHE", true),
+            CacheTTL:    getEnvAsInt("CACHE_TTL", 300),
+        },
+    }
+    
+    // Apply environment-specific overrides
+    if env == "production" {
+        applyProductionConfig(config)
+    }
+    
+    return config
+}
+
+func applyProductionConfig(config *Config) {
+    // Production-specific configuration
+    if dbURL := os.Getenv("DATABASE_URL"); dbURL != "" {
+        config.Database.URL = dbURL
+    }
+}
+
+// Helper functions
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
+func getEnvAsInt(key string, defaultValue int) int {
+    if value := os.Getenv(key); value != "" {
+        if intVal, err := strconv.Atoi(value); err == nil {
+            return intVal
+        }
+    }
+    return defaultValue
+}
+
+func getEnvAsBool(key string, defaultValue bool) bool {
+    if value := os.Getenv(key); value != "" {
+        if boolVal, err := strconv.ParseBool(value); err == nil {
+            return boolVal
+        }
+    }
+    return defaultValue
+}
+
+func getEnvAsSlice(key string, defaultValue []string) []string {
+    if value := os.Getenv(key); value != "" {
+        return strings.Split(value, ",")
+    }
+    return defaultValue
+}
+
+// Getter methods
+func (s *ConfigService) GetConfig() *Config {
+    return s.config
+}
+
+func (s *ConfigService) GetDatabaseURL() string {
+    return s.config.Database.URL
+}
+
+func (s *ConfigService) GetJWTSecret() string {
+    return s.config.JWT.Secret
+}
+
+func (s *ConfigService) IsProduction() bool {
+    return s.config.App.Environment == "production"
+}
+
+var ConfigServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "ConfigService",
+    Instantiator: NewConfigService,
+})
+```
+
+## Property Injection
+
+### Spring Boot @Value
+
+```java
+@Service
+public class EmailService {
+    @Value("${app.email.smtp-host}")
+    private String smtpHost;
+    
+    @Value("${app.email.smtp-port:587}")
+    private int smtpPort;
+    
+    @Value("${app.email.enabled:true}")
+    private boolean enabled;
+    
+    @Value("${app.email.templates}")
+    private List<String> templates;
+    
+    public void sendEmail(String to, String subject, String body) {
+        if (!enabled) {
+            log.info("Email sending is disabled");
+            return;
+        }
+        // Send email using smtpHost and smtpPort
+    }
+}
+```
+
+### GIMBAP Configuration Injection
+
+```go
+// internal/service/email.go
+package service
+
+import (
+    "log"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/config"
+)
+
+type EmailConfig struct {
+    SMTPHost  string
+    SMTPPort  int
+    Enabled   bool
+    Templates []string
+}
+
+type EmailService struct {
+    config *EmailConfig
+    logger *log.Logger
+}
+
+func NewEmailService(configService *config.ConfigService) *EmailService {
+    // Extract email configuration
+    emailConfig := &EmailConfig{
+        SMTPHost:  configService.GetConfig().Email.SMTPHost,
+        SMTPPort:  configService.GetConfig().Email.SMTPPort,
+        Enabled:   configService.GetConfig().Email.Enabled,
+        Templates: configService.GetConfig().Email.Templates,
+    }
+    
+    return &EmailService{
+        config: emailConfig,
+        logger: log.New(log.Writer(), "[EmailService] ", log.LstdFlags),
+    }
+}
+
+func (s *EmailService) SendEmail(to, subject, body string) error {
+    if !s.config.Enabled {
+        s.logger.Println("Email sending is disabled")
+        return nil
+    }
+    
+    // Send email using s.config.SMTPHost and s.config.SMTPPort
+    return nil
+}
+
+var EmailServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "EmailService",
+    Instantiator: NewEmailService,
+})
+```
+
+## Configuration Classes and Bean Definitions
+
+### Spring Boot @Configuration
+
+```java
+@Configuration
+@EnableCaching
+@EnableTransactionManagement
+public class AppConfig {
+    
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+    
+    @Bean
+    public ObjectMapper objectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        return mapper;
+    }
+    
+    @Bean
+    @ConditionalOnProperty(name = "app.features.enable-cache", havingValue = "true")
+    public CacheManager cacheManager() {
+        return new ConcurrentMapCacheManager("users", "products");
+    }
+    
+    @Bean
+    public DataSource dataSource(
+            @Value("${spring.datasource.url}") String url,
+            @Value("${spring.datasource.username}") String username,
+            @Value("${spring.datasource.password}") String password) {
+        HikariConfig config = new HikariConfig();
+        config.setJdbcUrl(url);
+        config.setUsername(username);
+        config.setPassword(password);
+        return new HikariDataSource(config);
+    }
+}
+```
+
+### GIMBAP Module with Providers
+
+```go
+// internal/app/module.go
+package app
+
+import (
+    "database/sql"
+    "encoding/json"
+    "sync"
+    
+    "github.com/jhseong7/gimbap"
+    "golang.org/x/crypto/bcrypt"
+    _ "github.com/lib/pq" // PostgreSQL driver
+    
+    "myapp/internal/config"
+)
+
+// Password Encoder
+type PasswordEncoder struct {
+    cost int
+}
+
+func NewPasswordEncoder() *PasswordEncoder {
+    return &PasswordEncoder{
+        cost: bcrypt.DefaultCost,
+    }
+}
+
+func (e *PasswordEncoder) Encode(password string) (string, error) {
+    bytes, err := bcrypt.GenerateFromPassword([]byte(password), e.cost)
+    return string(bytes), err
+}
+
+func (e *PasswordEncoder) Matches(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+    return err == nil
+}
+
+var PasswordEncoderProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "PasswordEncoder",
+    Instantiator: NewPasswordEncoder,
+})
+
+// JSON Encoder (ObjectMapper equivalent)
+type JSONEncoder struct {
+    encoder *json.Encoder
+    decoder *json.Decoder
+}
+
+func NewJSONEncoder() *JSONEncoder {
+    return &JSONEncoder{}
+}
+
+func (e *JSONEncoder) Marshal(v interface{}) ([]byte, error) {
+    return json.Marshal(v)
+}
+
+func (e *JSONEncoder) Unmarshal(data []byte, v interface{}) error {
+    return json.Unmarshal(data, v)
+}
+
+var JSONEncoderProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "JSONEncoder",
+    Instantiator: NewJSONEncoder,
+})
+
+// Cache Manager
+type CacheManager struct {
+    caches map[string]*Cache
+    mu     sync.RWMutex
+}
+
+type Cache struct {
+    data map[string]interface{}
+    mu   sync.RWMutex
+}
+
+func NewCacheManager(config *config.ConfigService) *CacheManager {
+    if !config.GetConfig().Features.EnableCache {
+        return nil // Conditional bean
+    }
+    
+    return &CacheManager{
+        caches: map[string]*Cache{
+            "users":    {data: make(map[string]interface{})},
+            "products": {data: make(map[string]interface{})},
+        },
+    }
+}
+
+var CacheManagerProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "CacheManager",
+    Instantiator: NewCacheManager,
+})
+
+// DataSource
+type DataSource struct {
+    db *sql.DB
+}
+
+func NewDataSource(config *config.ConfigService) (*DataSource, error) {
+    dbConfig := config.GetConfig().Database
+    
+    db, err := sql.Open("postgres", dbConfig.URL)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Configure connection pool
+    db.SetMaxOpenConns(dbConfig.Pool.MaxSize)
+    db.SetMaxIdleConns(dbConfig.Pool.MinIdle)
+    
+    // Test connection
+    if err := db.Ping(); err != nil {
+        return nil, err
+    }
+    
+    return &DataSource{db: db}, nil
+}
+
+func (ds *DataSource) GetDB() *sql.DB {
+    return ds.db
+}
+
+var DataSourceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "DataSource",
+    Instantiator: NewDataSource,
+})
+
+// Define the configuration module
+var ConfigModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "ConfigModule",
+    Providers: []*gimbap.Provider{
+        config.ConfigServiceProvider,
+        PasswordEncoderProvider,
+        JSONEncoderProvider,
+        CacheManagerProvider,
+        DataSourceProvider,
+        HttpClientProvider,
+    },
+})
+```
+
+## Component Scanning Alternative
+
+### Spring Boot Component Scan
+
+```java
+@SpringBootApplication
+@ComponentScan(basePackages = {
+    "com.example.demo.controller",
+    "com.example.demo.service",
+    "com.example.demo.repository"
+})
+public class DemoApplication {
+    // ...
+}
+
+// Or with custom configuration
+@Configuration
+@ComponentScan(
+    basePackages = "com.example.demo",
+    excludeFilters = @ComponentScan.Filter(
+        type = FilterType.REGEX,
+        pattern = "com.example.demo.legacy.*"
+    )
+)
+public class ComponentScanConfig {
+}
+```
+
+### GIMBAP Explicit Module Registration
+
+```go
+// internal/app/module.go
+package app
+
+import (
+    "github.com/jhseong7/gimbap"
+    
+    // Import all modules explicitly
+    "myapp/internal/controller"
+    "myapp/internal/service"
+    "myapp/internal/repository"
+    "myapp/internal/middleware"
+)
+
+// Root module that combines all feature modules
+var RootModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "RootModule",
+    SubModules: []*gimbap.Module{
+        ConfigModule,           // Configuration providers
+        repository.DataModule,  // Repository layer
+        service.ServiceModule,  // Business logic
+        controller.WebModule,   // HTTP controllers
+        middleware.MiddlewareModule, // Cross-cutting concerns
+    },
+})
+
+// Feature modules are defined in their packages
+// internal/controller/module.go
+package controller
+
+import "github.com/jhseong7/gimbap"
+
+var WebModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "WebModule",
+    Controllers: []*gimbap.Controller{
+        UserControllerProvider,
+        ProductControllerProvider,
+        OrderControllerProvider,
+        // Add all controllers explicitly
+    },
+})
+
+// internal/service/module.go
+package service
+
+import "github.com/jhseong7/gimbap"
+
+var ServiceModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "ServiceModule",
+    Providers: []*gimbap.Provider{
+        UserServiceProvider,
+        ProductServiceProvider,
+        OrderServiceProvider,
+        EmailServiceProvider,
+        // Add all services explicitly
+    },
+})
+```
+
+## Profiles and Environment-Specific Configuration
+
+### Spring Boot Profiles
+
+```java
+// Development profile
+@Component
+@Profile("development")
+public class DevDataInitializer implements CommandLineRunner {
+    @Override
+    public void run(String... args) {
+        // Initialize development data
+    }
+}
+
+// Production profile
+@Configuration
+@Profile("production")
+public class ProductionConfig {
+    @Bean
+    public DataSource dataSource() {
+        // Production datasource configuration
+    }
+}
+
+// Using profiles in code
+@Service
+public class FeatureService {
+    @Autowired
+    private Environment env;
+    
+    public void doSomething() {
+        if (env.acceptsProfiles(Profiles.of("development"))) {
+            // Development-specific logic
+        }
+    }
+}
+```
+
+### GIMBAP Environment-Based Configuration
+
+```go
+// internal/config/profiles.go
+package config
+
+import (
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/database"
+)
+
+// Development-specific providers
+func NewDevelopmentDataInitializer(db *database.DataSource) *DataInitializer {
+    if !isDevelopment() {
+        return nil // Don't initialize in other environments
+    }
+    
+    return &DataInitializer{
+        db: db,
+        initFunc: func() {
+            // Initialize development data
+        },
+    }
+}
+
+// Environment check helpers
+func isDevelopment() bool {
+    return getEnv("APP_ENV", "development") == "development"
+}
+
+func isProduction() bool {
+    return getEnv("APP_ENV", "development") == "production"
+}
+
+// Conditional module loading
+func GetEnvironmentModule() *gimbap.Module {
+    env := getEnv("APP_ENV", "development")
+    
+    switch env {
+    case "development":
+        return gimbap.DefineModule(gimbap.ModuleOption{
+            Name: "DevelopmentModule",
+            Providers: []*gimbap.Provider{
+                DevDataInitializerProvider,
+                MockEmailServiceProvider,
+            },
+        })
+    case "production":
+        return gimbap.DefineModule(gimbap.ModuleOption{
+            Name: "ProductionModule",
+            Providers: []*gimbap.Provider{
+                ProductionCacheProvider,
+                RealEmailServiceProvider,
+            },
+        })
+    default:
+        return gimbap.DefineModule(gimbap.ModuleOption{
+            Name: "DefaultModule",
+        })
+    }
+}
+
+// Using environment in services
+type FeatureService struct {
+    config *ConfigService
+}
+
+func (s *FeatureService) DoSomething() {
+    if s.config.GetConfig().App.Environment == "development" {
+        // Development-specific logic
+    }
+}
+```
+
+## Running the Application
+
+### Spring Boot
+
+```bash
+# Development
+./mvnw spring-boot:run
+
+# With specific profile
+./mvnw spring-boot:run -Dspring.profiles.active=production
+
+# As JAR
+java -jar target/demo-0.0.1-SNAPSHOT.jar --spring.profiles.active=production
+
+# With environment variables
+export SPRING_PROFILES_ACTIVE=production
+java -jar target/demo-0.0.1-SNAPSHOT.jar
+```
+
+### GIMBAP
+
+```bash
+# Development
+go run cmd/main.go
+
+# With environment variables
+APP_ENV=production PORT=8080 go run cmd/main.go
+
+# Build and run
+go build -o myapp cmd/main.go
+APP_ENV=production ./myapp
+
+# Using .env file (with godotenv)
+cat > .env << EOF
+APP_ENV=development
+PORT=8080
+DATABASE_URL=postgres://localhost:5432/demo
+JWT_SECRET=my-secret-key
+EOF
+
+go run cmd/main.go
+```
+
+## Key Differences
+
+### 1. Magic vs Explicit
+- Spring Boot: Auto-configuration and component scanning
+- GIMBAP: Explicit registration of all components
+
+### 2. Configuration Format
+- Spring Boot: Properties/YAML files with profiles
+- GIMBAP: Environment variables with struct-based config
+
+### 3. Bean Creation
+- Spring Boot: `@Bean` methods with conditional annotations
+- GIMBAP: Provider functions with explicit conditions
+
+### 4. Lifecycle
+- Spring Boot: Managed by Spring container
+- GIMBAP: Explicit Start/Stop for microservices
+
+## Best Practices
+
+1. **Configuration Management**
+   - Use environment variables for secrets
+   - Define clear configuration structs
+   - Validate configuration at startup
+
+2. **Module Organization**
+   - Group related providers in modules
+   - Keep modules focused and cohesive
+   - Use sub-modules for large applications
+
+3. **Dependency Management**
+   - Always use pointer types for injected dependencies
+   - Check for nil when providers are conditional
+   - Keep dependency graphs simple
+
+4. **Environment Handling**
+   - Use helper functions for environment checks
+   - Make environment-specific logic explicit
+   - Avoid magic strings for environment names
+
+## Common Issues
+
+### Issue: Missing Dependencies
+**Spring Boot**: Auto-wiring fails silently or throws at runtime
+**GIMBAP**: Compile error or panic at startup
+
+**Solution**: Ensure all providers are registered in modules
+
+### Issue: Configuration Not Loading
+**Spring Boot**: Check property sources and profiles
+**GIMBAP**: Verify environment variables are set
+
+**Solution**: Log configuration values at startup
+
+### Issue: Circular Dependencies
+**Both frameworks**: Application fails to start
+
+**Solution**: Refactor to use interfaces or lazy initialization
+
+## Next Steps
+
+Now that you have your application bootstrapped and configured, proceed to:
+- [REST API with Repository Pattern →](./02-rest-api)
+- [Spring Security →](./03-security)
+- [Testing Configuration →](./06-testing)

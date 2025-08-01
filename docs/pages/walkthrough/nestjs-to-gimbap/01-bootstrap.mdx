@@ -1,0 +1,558 @@
+# Step 1: Bootstrap and Basic Setup
+
+This guide walks you through converting a basic NestJS application to GIMBAP, starting with the bootstrap process and basic dependency injection setup.
+
+## Converting the Bootstrap Process
+
+### NestJS Bootstrap (main.ts)
+
+In NestJS, your application starts with a `main.ts` file:
+
+```typescript
+// src/main.ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  
+  // Global middleware
+  app.useGlobalPipes(new ValidationPipe());
+  
+  // CORS
+  app.enableCors({
+    origin: 'http://localhost:3000',
+    credentials: true,
+  });
+  
+  // Start server
+  await app.listen(3000);
+  console.log(`Application is running on: ${await app.getUrl()}`);
+}
+bootstrap();
+```
+
+### GIMBAP Bootstrap (main.go)
+
+In GIMBAP, the equivalent bootstrap process:
+
+```go
+// cmd/main.go
+package main
+
+import (
+    "log"
+    "github.com/jhseong7/gimbap"
+    "github.com/jhseong7/gimbap/engine/gin"
+    "myapp/internal/app"
+    "myapp/internal/middleware"
+)
+
+func main() {
+    // Create application
+    application := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "MyApp",
+        AppModule:    app.AppModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+    
+    // Global middleware
+    application.AddMiddleware(
+        middleware.CORS(),
+        middleware.ValidationMiddleware(),
+    )
+    
+    // Start server
+    log.Println("Application is running on: http://localhost:3000")
+    application.RunWithOptions(gimbap.RuntimeOptions{
+        Port: 3000,
+    })
+}
+```
+
+## Converting the Root Module
+
+### NestJS Root Module
+
+```typescript
+// src/app.module.ts
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { UsersModule } from './users/users.module';
+import { DatabaseModule } from './database/database.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+    }),
+    DatabaseModule,
+    UsersModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+### GIMBAP Root Module
+
+```go
+// internal/app/module.go
+package app
+
+import (
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/config"
+    "myapp/internal/database"
+    "myapp/internal/users"
+)
+
+var AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "AppModule",
+    SubModules: []*gimbap.Module{
+        config.ConfigModule,    // Global configuration
+        database.DatabaseModule,
+        users.UsersModule,
+    },
+    Controllers: []*gimbap.Controller{
+        AppControllerProvider,
+    },
+    Providers: []*gimbap.Provider{
+        AppServiceProvider,
+    },
+})
+```
+
+## Converting Basic Service and Controller
+
+### NestJS Service
+
+```typescript
+// src/app.service.ts
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class AppService {
+  constructor(private configService: ConfigService) {}
+
+  getHello(): string {
+    const appName = this.configService.get<string>('APP_NAME', 'NestJS App');
+    return `Hello from ${appName}!`;
+  }
+
+  getHealth() {
+    return {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+    };
+  }
+}
+```
+
+### GIMBAP Service
+
+```go
+// internal/app/service.go
+package app
+
+import (
+    "time"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/config"
+)
+
+type AppService struct {
+    config *config.ConfigService
+}
+
+func NewAppService(config *config.ConfigService) *AppService {
+    return &AppService{
+        config: config,
+    }
+}
+
+func (s *AppService) GetHello() string {
+    appName := s.config.GetString("APP_NAME", "GIMBAP App")
+    return "Hello from " + appName + "!"
+}
+
+func (s *AppService) GetHealth() map[string]interface{} {
+    return map[string]interface{}{
+        "status":    "ok",
+        "timestamp": time.Now().Format(time.RFC3339),
+    }
+}
+
+var AppServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "AppService",
+    Instantiator: NewAppService,
+})
+```
+
+### NestJS Controller
+
+```typescript
+// src/app.controller.ts
+import { Controller, Get } from '@nestjs/common';
+import { AppService } from './app.service';
+
+@Controller()
+export class AppController {
+  constructor(private readonly appService: AppService) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello();
+  }
+
+  @Get('health')
+  getHealth() {
+    return this.appService.getHealth();
+  }
+}
+```
+
+### GIMBAP Controller
+
+```go
+// internal/app/controller.go
+package app
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+type AppController struct {
+    gimbap.IController
+    appService *AppService
+}
+
+func NewAppController(appService *AppService) *AppController {
+    return &AppController{
+        appService: appService,
+    }
+}
+
+func (c *AppController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/",
+            Handler: c.GetHello,
+        },
+        {
+            Method:  "GET",
+            Path:    "/health",
+            Handler: c.GetHealth,
+        },
+    }
+}
+
+func (c *AppController) GetHello(ctx *gin.Context) {
+    message := c.appService.GetHello()
+    ctx.String(200, message)
+}
+
+func (c *AppController) GetHealth(ctx *gin.Context) {
+    health := c.appService.GetHealth()
+    ctx.JSON(200, health)
+}
+
+var AppControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "AppController",
+    Instantiator: NewAppController,
+    RootPath:     "", // Root path
+})
+```
+
+## Configuration Module
+
+### NestJS Configuration
+
+```typescript
+// src/config/configuration.ts
+export default () => ({
+  port: parseInt(process.env.PORT, 10) || 3000,
+  database: {
+    host: process.env.DATABASE_HOST || 'localhost',
+    port: parseInt(process.env.DATABASE_PORT, 10) || 5432,
+  },
+  jwt: {
+    secret: process.env.JWT_SECRET || 'secret',
+    expiresIn: process.env.JWT_EXPIRES_IN || '1d',
+  },
+});
+```
+
+### GIMBAP Configuration
+
+```go
+// internal/config/config.go
+package config
+
+import (
+    "os"
+    "strconv"
+    "github.com/jhseong7/gimbap"
+)
+
+type Config struct {
+    Port     int
+    Database DatabaseConfig
+    JWT      JWTConfig
+}
+
+type DatabaseConfig struct {
+    Host string
+    Port int
+}
+
+type JWTConfig struct {
+    Secret    string
+    ExpiresIn string
+}
+
+type ConfigService struct {
+    config *Config
+}
+
+func NewConfigService() *ConfigService {
+    return &ConfigService{
+        config: loadConfig(),
+    }
+}
+
+func loadConfig() *Config {
+    port, _ := strconv.Atoi(getEnv("PORT", "3000"))
+    dbPort, _ := strconv.Atoi(getEnv("DATABASE_PORT", "5432"))
+    
+    return &Config{
+        Port: port,
+        Database: DatabaseConfig{
+            Host: getEnv("DATABASE_HOST", "localhost"),
+            Port: dbPort,
+        },
+        JWT: JWTConfig{
+            Secret:    getEnv("JWT_SECRET", "secret"),
+            ExpiresIn: getEnv("JWT_EXPIRES_IN", "1d"),
+        },
+    }
+}
+
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
+func (s *ConfigService) Get() *Config {
+    return s.config
+}
+
+func (s *ConfigService) GetString(key string, defaultValue string) string {
+    // Implement key-based access if needed
+    return defaultValue
+}
+
+var ConfigServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "ConfigService",
+    Instantiator: NewConfigService,
+})
+
+var ConfigModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "ConfigModule",
+    Providers: []*gimbap.Provider{
+        ConfigServiceProvider,
+    },
+})
+```
+
+## Global Middleware
+
+### NestJS Global Pipes
+
+```typescript
+// src/common/pipes/validation.pipe.ts
+import { PipeTransform, Injectable, ArgumentMetadata, BadRequestException } from '@nestjs/common';
+import { validate } from 'class-validator';
+import { plainToClass } from 'class-transformer';
+
+@Injectable()
+export class ValidationPipe implements PipeTransform<any> {
+  async transform(value: any, { metatype }: ArgumentMetadata) {
+    if (!metatype || !this.toValidate(metatype)) {
+      return value;
+    }
+    const object = plainToClass(metatype, value);
+    const errors = await validate(object);
+    if (errors.length > 0) {
+      throw new BadRequestException('Validation failed');
+    }
+    return value;
+  }
+
+  private toValidate(metatype: Function): boolean {
+    const types: Function[] = [String, Boolean, Number, Array, Object];
+    return !types.includes(metatype);
+  }
+}
+```
+
+### GIMBAP Validation Middleware
+
+```go
+// internal/middleware/validation.go
+package middleware
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/go-playground/validator/v10"
+)
+
+var validate = validator.New()
+
+func ValidationMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Validation is typically done in each handler
+        // This middleware can set up the validator
+        c.Set("validator", validate)
+        c.Next()
+    }
+}
+
+// Helper function for DTOs
+func ValidateDTO(c *gin.Context, dto interface{}) error {
+    if err := c.ShouldBindJSON(dto); err != nil {
+        return err
+    }
+    
+    if v, exists := c.Get("validator"); exists {
+        if validator, ok := v.(*validator.Validate); ok {
+            return validator.Struct(dto)
+        }
+    }
+    
+    return nil
+}
+```
+
+### CORS Middleware
+
+```go
+// internal/middleware/cors.go
+package middleware
+
+import (
+    "github.com/gin-gonic/gin"
+)
+
+func CORS() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:3000")
+        c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+        c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+
+        if c.Request.Method == "OPTIONS" {
+            c.AbortWithStatus(204)
+            return
+        }
+
+        c.Next()
+    }
+}
+```
+
+## Project Structure Comparison
+
+### NestJS Structure
+```
+src/
+├── main.ts                 # Bootstrap
+├── app.module.ts          # Root module
+├── app.controller.ts      # Root controller
+├── app.service.ts         # Root service
+├── common/
+│   ├── pipes/            # Global pipes
+│   ├── guards/           # Global guards
+│   └── interceptors/     # Global interceptors
+└── config/
+    └── configuration.ts   # Configuration
+```
+
+### GIMBAP Structure
+```
+cmd/
+├── main.go               # Bootstrap
+internal/
+├── app/
+│   ├── module.go        # Root module
+│   ├── controller.go    # Root controller
+│   └── service.go       # Root service
+├── middleware/          # Global middleware
+│   ├── cors.go
+│   └── validation.go
+└── config/
+    ├── config.go        # Configuration service
+    └── module.go        # Config module
+```
+
+## Running the Application
+
+### NestJS
+```bash
+# Development
+npm run start:dev
+
+# Production
+npm run build
+npm run start:prod
+```
+
+### GIMBAP
+```bash
+# Development with hot reload
+air
+
+# Build
+go build -o myapp cmd/main.go
+
+# Run
+./myapp
+
+# Or direct run
+go run cmd/main.go
+```
+
+## Key Takeaways
+
+1. **Explicit Registration**: GIMBAP requires explicit provider and controller registration
+2. **Pointer Types**: Always use pointer types for dependencies in Go
+3. **No Decorators**: Configuration through function calls instead of decorators
+4. **Engine-Specific**: Handler signatures depend on the chosen HTTP engine
+5. **Compile-Time Safety**: Go's type system catches errors at compile time
+
+## Next Steps
+
+Now that you have a basic application running, proceed to:
+- [CRUD REST API →](./02-crud-api) - Build a complete CRUD API
+- [Authentication →](./03-auth) - Add JWT authentication
+- [Testing →](./06-testing) - Set up unit and integration tests
+
+## Common Issues
+
+### Issue: Circular Dependencies
+**Solution**: Use interfaces and lazy initialization
+
+### Issue: Type Mismatches
+**Solution**: Ensure pointer types in struct fields match constructor returns
+
+### Issue: Routes Not Found
+**Solution**: Check controller registration and RootPath configuration
