@@ -1,0 +1,1056 @@
+# Step 6: Testing Strategies
+
+This guide covers testing patterns for Spring Boot applications and their GIMBAP equivalents, including unit tests, integration tests, and end-to-end testing.
+
+## Unit Testing
+
+### Spring Boot Unit Tests
+```java
+// Spring Boot - Unit Test with Mockito
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+    @Mock
+    private UserRepository userRepository;
+    
+    @Mock
+    private PasswordEncoder passwordEncoder;
+    
+    @InjectMocks
+    private UserService userService;
+    
+    @Test
+    void testCreateUser() {
+        // Given
+        UserDto dto = new UserDto("john@example.com", "password");
+        User savedUser = new User(1L, "john@example.com", "encoded");
+        
+        when(passwordEncoder.encode("password")).thenReturn("encoded");
+        when(userRepository.save(any(User.class))).thenReturn(savedUser);
+        
+        // When
+        User result = userService.createUser(dto);
+        
+        // Then
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getEmail()).isEqualTo("john@example.com");
+        verify(userRepository).save(any(User.class));
+        verify(passwordEncoder).encode("password");
+    }
+    
+    @Test
+    void testFindByEmail_UserNotFound() {
+        // Given
+        when(userRepository.findByEmail("unknown@example.com"))
+            .thenReturn(Optional.empty());
+        
+        // When/Then
+        assertThrows(UserNotFoundException.class, () -> {
+            userService.findByEmail("unknown@example.com");
+        });
+    }
+}
+
+// Repository Test with DataJpaTest
+@DataJpaTest
+class UserRepositoryTest {
+    @Autowired
+    private TestEntityManager entityManager;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Test
+    void testFindByEmail() {
+        // Given
+        User user = new User("john@example.com", "password");
+        entityManager.persistAndFlush(user);
+        
+        // When
+        Optional<User> found = userRepository.findByEmail("john@example.com");
+        
+        // Then
+        assertThat(found).isPresent();
+        assertThat(found.get().getEmail()).isEqualTo("john@example.com");
+    }
+}
+```
+
+### GIMBAP Unit Tests
+```go
+// GIMBAP - Unit Tests with testify and gomock
+package service_test
+
+import (
+    "context"
+    "errors"
+    "testing"
+    
+    "github.com/stretchr/testify/assert"
+    "github.com/stretchr/testify/mock"
+    "github.com/golang/mock/gomock"
+    "yourapp/service"
+    "yourapp/mocks"
+)
+
+// Mock repository using testify
+type MockUserRepository struct {
+    mock.Mock
+}
+
+func (m *MockUserRepository) Save(ctx context.Context, user *User) (*User, error) {
+    args := m.Called(ctx, user)
+    if args.Get(0) == nil {
+        return nil, args.Error(1)
+    }
+    return args.Get(0).(*User), args.Error(1)
+}
+
+func (m *MockUserRepository) FindByEmail(ctx context.Context, email string) (*User, error) {
+    args := m.Called(ctx, email)
+    if args.Get(0) == nil {
+        return nil, args.Error(1)
+    }
+    return args.Get(0).(*User), args.Error(1)
+}
+
+// Service test
+func TestUserService_CreateUser(t *testing.T) {
+    // Setup
+    mockRepo := new(MockUserRepository)
+    mockEncoder := new(MockPasswordEncoder)
+    userService := service.NewUserService(mockRepo, mockEncoder)
+    
+    // Given
+    dto := &UserDto{
+        Email:    "john@example.com",
+        Password: "password",
+    }
+    
+    encodedPassword := "encoded_password"
+    savedUser := &User{
+        ID:       1,
+        Email:    "john@example.com",
+        Password: encodedPassword,
+    }
+    
+    mockEncoder.On("Encode", "password").Return(encodedPassword, nil)
+    mockRepo.On("Save", mock.Anything, mock.AnythingOfType("*User")).Return(savedUser, nil)
+    
+    // When
+    result, err := userService.CreateUser(context.Background(), dto)
+    
+    // Then
+    assert.NoError(t, err)
+    assert.NotNil(t, result)
+    assert.Equal(t, int64(1), result.ID)
+    assert.Equal(t, "john@example.com", result.Email)
+    
+    mockRepo.AssertExpectations(t)
+    mockEncoder.AssertExpectations(t)
+}
+
+// Using gomock for more type-safe mocks
+func TestUserService_CreateUser_WithGomock(t *testing.T) {
+    ctrl := gomock.NewController(t)
+    defer ctrl.Finish()
+    
+    // Create mocks
+    mockRepo := mocks.NewMockUserRepository(ctrl)
+    mockEncoder := mocks.NewMockPasswordEncoder(ctrl)
+    userService := service.NewUserService(mockRepo, mockEncoder)
+    
+    // Set expectations
+    mockEncoder.EXPECT().
+        Encode("password").
+        Return("encoded_password", nil)
+    
+    mockRepo.EXPECT().
+        Save(gomock.Any(), gomock.Any()).
+        DoAndReturn(func(ctx context.Context, user *User) (*User, error) {
+            user.ID = 1
+            return user, nil
+        })
+    
+    // Execute
+    dto := &UserDto{Email: "john@example.com", Password: "password"}
+    result, err := userService.CreateUser(context.Background(), dto)
+    
+    // Assert
+    assert.NoError(t, err)
+    assert.Equal(t, int64(1), result.ID)
+}
+
+// Table-driven tests
+func TestUserService_ValidateEmail(t *testing.T) {
+    tests := []struct {
+        name    string
+        email   string
+        wantErr bool
+    }{
+        {
+            name:    "valid email",
+            email:   "user@example.com",
+            wantErr: false,
+        },
+        {
+            name:    "invalid email - no @",
+            email:   "userexample.com",
+            wantErr: true,
+        },
+        {
+            name:    "invalid email - empty",
+            email:   "",
+            wantErr: true,
+        },
+        {
+            name:    "invalid email - spaces",
+            email:   "user @example.com",
+            wantErr: true,
+        },
+    }
+    
+    userService := service.NewUserService(nil, nil)
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            err := userService.ValidateEmail(tt.email)
+            if tt.wantErr {
+                assert.Error(t, err)
+            } else {
+                assert.NoError(t, err)
+            }
+        })
+    }
+}
+
+// Repository test with test database
+func TestUserRepository_Integration(t *testing.T) {
+    // Setup test database
+    db := setupTestDB(t)
+    defer db.Close()
+    
+    repo := repository.NewUserRepository(db)
+    
+    t.Run("Save and Find", func(t *testing.T) {
+        // Given
+        user := &User{
+            Email:    "test@example.com",
+            Password: "hashed",
+        }
+        
+        // When - Save
+        saved, err := repo.Save(context.Background(), user)
+        assert.NoError(t, err)
+        assert.NotZero(t, saved.ID)
+        
+        // When - Find
+        found, err := repo.FindByEmail(context.Background(), "test@example.com")
+        assert.NoError(t, err)
+        assert.Equal(t, saved.ID, found.ID)
+        assert.Equal(t, "test@example.com", found.Email)
+    })
+}
+```
+
+## Integration Testing
+
+### Spring Boot Integration Tests
+```java
+// Spring Boot - Integration Test with WebMvcTest
+@WebMvcTest(UserController.class)
+class UserControllerTest {
+    @Autowired
+    private MockMvc mockMvc;
+    
+    @MockBean
+    private UserService userService;
+    
+    @Test
+    void testGetUser() throws Exception {
+        // Given
+        User user = new User(1L, "john@example.com");
+        when(userService.findById(1L)).thenReturn(user);
+        
+        // When/Then
+        mockMvc.perform(get("/api/users/1"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.id").value(1))
+            .andExpect(jsonPath("$.email").value("john@example.com"));
+    }
+    
+    @Test
+    @WithMockUser(roles = "ADMIN")
+    void testCreateUser() throws Exception {
+        // Given
+        UserDto dto = new UserDto("john@example.com", "password");
+        User created = new User(1L, "john@example.com");
+        when(userService.createUser(any(UserDto.class))).thenReturn(created);
+        
+        // When/Then
+        mockMvc.perform(post("/api/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                        "email": "john@example.com",
+                        "password": "password"
+                    }
+                    """))
+            .andExpect(status().isCreated())
+            .andExpect(header().string("Location", "/api/users/1"))
+            .andExpect(jsonPath("$.id").value(1));
+    }
+}
+
+// Full integration test
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureMockMvc
+@TestPropertySource(locations = "classpath:application-test.properties")
+class ApplicationIntegrationTest {
+    @Autowired
+    private MockMvc mockMvc;
+    
+    @Autowired
+    private UserRepository userRepository;
+    
+    @Test
+    @Sql("/test-data.sql")
+    @Transactional
+    @Rollback
+    void testCompleteUserFlow() throws Exception {
+        // Create user
+        mockMvc.perform(post("/api/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                        "email": "new@example.com",
+                        "password": "password123"
+                    }
+                    """))
+            .andExpect(status().isCreated());
+        
+        // Verify in database
+        Optional<User> saved = userRepository.findByEmail("new@example.com");
+        assertThat(saved).isPresent();
+        
+        // Login
+        MvcResult result = mockMvc.perform(post("/api/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {
+                        "email": "new@example.com",
+                        "password": "password123"
+                    }
+                    """))
+            .andExpect(status().isOk())
+            .andReturn();
+        
+        String token = JsonPath.read(result.getResponse().getContentAsString(), "$.token");
+        
+        // Access protected endpoint
+        mockMvc.perform(get("/api/profile")
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.email").value("new@example.com"));
+    }
+}
+```
+
+### GIMBAP Integration Tests
+```go
+// GIMBAP - Integration Tests
+package integration_test
+
+import (
+    "bytes"
+    "encoding/json"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/stretchr/testify/suite"
+    "yourapp/app"
+    "yourapp/config"
+)
+
+// Controller integration test
+type UserControllerTestSuite struct {
+    suite.Suite
+    router  *gin.Engine
+    service *MockUserService
+}
+
+func (suite *UserControllerTestSuite) SetupTest() {
+    gin.SetMode(gin.TestMode)
+    
+    suite.service = new(MockUserService)
+    controller := NewUserController(suite.service)
+    
+    suite.router = gin.New()
+    routes := controller.GetRouteSpecs()
+    for _, route := range routes {
+        suite.router.Handle(route.Method, route.Path, route.Handler)
+    }
+}
+
+func (suite *UserControllerTestSuite) TestGetUser() {
+    // Given
+    user := &User{ID: 1, Email: "john@example.com"}
+    suite.service.On("FindById", mock.Anything, int64(1)).Return(user, nil)
+    
+    // When
+    req := httptest.NewRequest("GET", "/api/users/1", nil)
+    w := httptest.NewRecorder()
+    suite.router.ServeHTTP(w, req)
+    
+    // Then
+    suite.Equal(http.StatusOK, w.Code)
+    
+    var response User
+    err := json.Unmarshal(w.Body.Bytes(), &response)
+    suite.NoError(err)
+    suite.Equal(int64(1), response.ID)
+    suite.Equal("john@example.com", response.Email)
+}
+
+func (suite *UserControllerTestSuite) TestCreateUser() {
+    // Given
+    dto := UserDto{Email: "new@example.com", Password: "password"}
+    created := &User{ID: 1, Email: "new@example.com"}
+    suite.service.On("CreateUser", mock.Anything, mock.AnythingOfType("UserDto")).Return(created, nil)
+    
+    // When
+    body, _ := json.Marshal(dto)
+    req := httptest.NewRequest("POST", "/api/users", bytes.NewBuffer(body))
+    req.Header.Set("Content-Type", "application/json")
+    w := httptest.NewRecorder()
+    suite.router.ServeHTTP(w, req)
+    
+    // Then
+    suite.Equal(http.StatusCreated, w.Code)
+    suite.Equal("/api/users/1", w.Header().Get("Location"))
+}
+
+func TestUserControllerSuite(t *testing.T) {
+    suite.Run(t, new(UserControllerTestSuite))
+}
+
+// Full application integration test
+type ApplicationTestSuite struct {
+    suite.Suite
+    app    *gimbap.App
+    client *http.Client
+    server *httptest.Server
+}
+
+func (suite *ApplicationTestSuite) SetupSuite() {
+    // Create test configuration
+    testConfig := &config.Config{
+        DatabaseURL: "postgres://test@localhost/testdb",
+        JWTSecret:   "test-secret",
+    }
+    
+    // Create application with test modules
+    suite.app = gimbap.CreateApp(
+        gimbap.WithModules(
+            NewTestDatabaseModule(testConfig),
+            NewAuthModule(),
+            NewUserModule(),
+        ),
+    )
+    
+    // Start test server
+    engine := suite.app.GetEngine()
+    suite.server = httptest.NewServer(engine)
+    suite.client = suite.server.Client()
+}
+
+func (suite *ApplicationTestSuite) TearDownSuite() {
+    suite.server.Close()
+    suite.app.Shutdown()
+}
+
+func (suite *ApplicationTestSuite) SetupTest() {
+    // Clean database before each test
+    suite.cleanDatabase()
+}
+
+func (suite *ApplicationTestSuite) TestCompleteUserFlow() {
+    // Register user
+    registerBody := map[string]string{
+        "email":    "test@example.com",
+        "password": "password123",
+    }
+    suite.makeRequest("POST", "/api/register", registerBody, http.StatusCreated)
+    
+    // Login
+    loginBody := map[string]string{
+        "email":    "test@example.com",
+        "password": "password123",
+    }
+    resp := suite.makeRequest("POST", "/api/login", loginBody, http.StatusOK)
+    
+    var loginResponse map[string]string
+    json.Unmarshal(resp, &loginResponse)
+    token := loginResponse["token"]
+    
+    // Access protected endpoint
+    headers := map[string]string{
+        "Authorization": "Bearer " + token,
+    }
+    profileResp := suite.makeRequestWithHeaders("GET", "/api/profile", nil, headers, http.StatusOK)
+    
+    var profile User
+    json.Unmarshal(profileResp, &profile)
+    suite.Equal("test@example.com", profile.Email)
+}
+
+func (suite *ApplicationTestSuite) makeRequest(method, path string, body interface{}, expectedStatus int) []byte {
+    return suite.makeRequestWithHeaders(method, path, body, nil, expectedStatus)
+}
+
+func (suite *ApplicationTestSuite) makeRequestWithHeaders(method, path string, body interface{}, 
+    headers map[string]string, expectedStatus int) []byte {
+    
+    var bodyReader *bytes.Reader
+    if body != nil {
+        jsonBody, _ := json.Marshal(body)
+        bodyReader = bytes.NewReader(jsonBody)
+    } else {
+        bodyReader = bytes.NewReader([]byte{})
+    }
+    
+    req, err := http.NewRequest(method, suite.server.URL+path, bodyReader)
+    suite.NoError(err)
+    
+    if body != nil {
+        req.Header.Set("Content-Type", "application/json")
+    }
+    
+    for key, value := range headers {
+        req.Header.Set(key, value)
+    }
+    
+    resp, err := suite.client.Do(req)
+    suite.NoError(err)
+    defer resp.Body.Close()
+    
+    suite.Equal(expectedStatus, resp.StatusCode)
+    
+    respBody, _ := io.ReadAll(resp.Body)
+    return respBody
+}
+
+func TestApplicationSuite(t *testing.T) {
+    suite.Run(t, new(ApplicationTestSuite))
+}
+```
+
+## End-to-End Testing
+
+### Spring Boot E2E Tests
+```java
+// Spring Boot - E2E Test with TestContainers
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Testcontainers
+@ActiveProfiles("test")
+class EndToEndTest {
+    @Container
+    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:14")
+            .withDatabaseName("testdb")
+            .withUsername("test")
+            .withPassword("test");
+    
+    @Container
+    static GenericContainer<?> redis = new GenericContainer<>("redis:7")
+            .withExposedPorts(6379);
+    
+    @DynamicPropertySource
+    static void properties(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", postgres::getJdbcUrl);
+        registry.add("spring.datasource.username", postgres::getUsername);
+        registry.add("spring.datasource.password", postgres::getPassword);
+        registry.add("spring.redis.host", redis::getHost);
+        registry.add("spring.redis.port", () -> redis.getMappedPort(6379));
+    }
+    
+    @Autowired
+    private TestRestTemplate restTemplate;
+    
+    @LocalServerPort
+    private int port;
+    
+    @Test
+    void testFullApplicationFlow() {
+        // Create user
+        UserRegistration registration = new UserRegistration("user@test.com", "password");
+        ResponseEntity<User> createResponse = restTemplate.postForEntity(
+            "http://localhost:" + port + "/api/register",
+            registration,
+            User.class
+        );
+        
+        assertThat(createResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        
+        // Login
+        LoginRequest loginRequest = new LoginRequest("user@test.com", "password");
+        ResponseEntity<TokenResponse> loginResponse = restTemplate.postForEntity(
+            "http://localhost:" + port + "/api/login",
+            loginRequest,
+            TokenResponse.class
+        );
+        
+        assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        String token = loginResponse.getBody().getToken();
+        
+        // Use token for authenticated request
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        HttpEntity<Void> entity = new HttpEntity<>(headers);
+        
+        ResponseEntity<User> profileResponse = restTemplate.exchange(
+            "http://localhost:" + port + "/api/profile",
+            HttpMethod.GET,
+            entity,
+            User.class
+        );
+        
+        assertThat(profileResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(profileResponse.getBody().getEmail()).isEqualTo("user@test.com");
+    }
+}
+```
+
+### GIMBAP E2E Tests
+```go
+// GIMBAP - E2E Tests with testcontainers-go
+package e2e_test
+
+import (
+    "context"
+    "database/sql"
+    "fmt"
+    "testing"
+    "time"
+    
+    "github.com/testcontainers/testcontainers-go"
+    "github.com/testcontainers/testcontainers-go/modules/postgres"
+    "github.com/testcontainers/testcontainers-go/modules/redis"
+    "github.com/stretchr/testify/suite"
+)
+
+type E2ETestSuite struct {
+    suite.Suite
+    postgresContainer testcontainers.Container
+    redisContainer    testcontainers.Container
+    app              *gimbap.App
+    client           *http.Client
+    baseURL          string
+}
+
+func (suite *E2ETestSuite) SetupSuite() {
+    ctx := context.Background()
+    
+    // Start PostgreSQL container
+    postgresContainer, err := postgres.RunContainer(ctx,
+        testcontainers.WithImage("postgres:14"),
+        postgres.WithDatabase("testdb"),
+        postgres.WithUsername("test"),
+        postgres.WithPassword("test"),
+        testcontainers.WithWaitStrategy(
+            wait.ForLog("database system is ready to accept connections").
+                WithOccurrence(2).
+                WithStartupTimeout(30*time.Second),
+        ),
+    )
+    suite.NoError(err)
+    suite.postgresContainer = postgresContainer
+    
+    // Start Redis container
+    redisContainer, err := redis.RunContainer(ctx,
+        testcontainers.WithImage("redis:7"),
+        redis.WithSnapshotting(10, 1),
+        redis.WithLogLevel(redis.LogLevelDebug),
+    )
+    suite.NoError(err)
+    suite.redisContainer = redisContainer
+    
+    // Get connection strings
+    postgresHost, _ := postgresContainer.Host(ctx)
+    postgresPort, _ := postgresContainer.MappedPort(ctx, "5432")
+    postgresURL := fmt.Sprintf("postgres://test:test@%s:%s/testdb?sslmode=disable", 
+        postgresHost, postgresPort.Port())
+    
+    redisHost, _ := redisContainer.Host(ctx)
+    redisPort, _ := redisContainer.MappedPort(ctx, "6379")
+    redisURL := fmt.Sprintf("redis://%s:%s", redisHost, redisPort.Port())
+    
+    // Create application with test configuration
+    config := &Config{
+        DatabaseURL: postgresURL,
+        RedisURL:    redisURL,
+        JWTSecret:   "test-secret",
+    }
+    
+    suite.app = gimbap.CreateApp(
+        gimbap.WithModules(
+            NewDatabaseModule(config),
+            NewCacheModule(config),
+            NewAuthModule(config),
+            NewUserModule(),
+        ),
+    )
+    
+    // Run migrations
+    suite.runMigrations(postgresURL)
+    
+    // Start server
+    go suite.app.Run(":0") // Random port
+    time.Sleep(2 * time.Second) // Wait for server to start
+    
+    suite.baseURL = "http://localhost:" + suite.app.GetPort()
+    suite.client = &http.Client{Timeout: 10 * time.Second}
+}
+
+func (suite *E2ETestSuite) TearDownSuite() {
+    ctx := context.Background()
+    
+    suite.app.Shutdown()
+    
+    if suite.postgresContainer != nil {
+        suite.postgresContainer.Terminate(ctx)
+    }
+    
+    if suite.redisContainer != nil {
+        suite.redisContainer.Terminate(ctx)
+    }
+}
+
+func (suite *E2ETestSuite) TestCompleteUserJourney() {
+    // Step 1: Register new user
+    registerReq := map[string]string{
+        "email":    "e2e@test.com",
+        "password": "SecurePass123!",
+        "name":     "E2E Test User",
+    }
+    
+    resp := suite.makeRequest("POST", "/api/register", registerReq)
+    suite.Equal(201, resp.StatusCode)
+    
+    var user User
+    suite.parseResponse(resp, &user)
+    suite.Equal("e2e@test.com", user.Email)
+    suite.NotZero(user.ID)
+    
+    // Step 2: Login with credentials
+    loginReq := map[string]string{
+        "email":    "e2e@test.com",
+        "password": "SecurePass123!",
+    }
+    
+    resp = suite.makeRequest("POST", "/api/login", loginReq)
+    suite.Equal(200, resp.StatusCode)
+    
+    var tokenResp TokenResponse
+    suite.parseResponse(resp, &tokenResp)
+    suite.NotEmpty(tokenResp.Token)
+    
+    // Step 3: Access protected endpoint
+    headers := map[string]string{
+        "Authorization": "Bearer " + tokenResp.Token,
+    }
+    
+    resp = suite.makeRequestWithHeaders("GET", "/api/profile", nil, headers)
+    suite.Equal(200, resp.StatusCode)
+    
+    var profile User
+    suite.parseResponse(resp, &profile)
+    suite.Equal("e2e@test.com", profile.Email)
+    suite.Equal("E2E Test User", profile.Name)
+    
+    // Step 4: Update profile
+    updateReq := map[string]string{
+        "name": "Updated Name",
+    }
+    
+    resp = suite.makeRequestWithHeaders("PUT", "/api/profile", updateReq, headers)
+    suite.Equal(200, resp.StatusCode)
+    
+    // Step 5: Verify update
+    resp = suite.makeRequestWithHeaders("GET", "/api/profile", nil, headers)
+    suite.Equal(200, resp.StatusCode)
+    
+    suite.parseResponse(resp, &profile)
+    suite.Equal("Updated Name", profile.Name)
+    
+    // Step 6: Test caching (second request should be faster)
+    start := time.Now()
+    suite.makeRequestWithHeaders("GET", "/api/profile", nil, headers)
+    firstDuration := time.Since(start)
+    
+    start = time.Now()
+    suite.makeRequestWithHeaders("GET", "/api/profile", nil, headers)
+    secondDuration := time.Since(start)
+    
+    // Second request should be significantly faster due to caching
+    suite.Less(secondDuration, firstDuration/2)
+}
+
+func (suite *E2ETestSuite) TestConcurrentRequests() {
+    // Create test user
+    token := suite.createTestUser("concurrent@test.com", "password")
+    
+    // Test concurrent requests
+    var wg sync.WaitGroup
+    errors := make(chan error, 10)
+    
+    for i := 0; i < 10; i++ {
+        wg.Add(1)
+        go func(id int) {
+            defer wg.Done()
+            
+            headers := map[string]string{
+                "Authorization": "Bearer " + token,
+            }
+            
+            resp := suite.makeRequestWithHeaders("GET", "/api/profile", nil, headers)
+            if resp.StatusCode != 200 {
+                errors <- fmt.Errorf("request %d failed with status %d", id, resp.StatusCode)
+            }
+        }(i)
+    }
+    
+    wg.Wait()
+    close(errors)
+    
+    // Check for errors
+    for err := range errors {
+        suite.Fail("Concurrent request failed", err.Error())
+    }
+}
+
+func TestE2ESuite(t *testing.T) {
+    suite.Run(t, new(E2ETestSuite))
+}
+```
+
+## Testing Best Practices
+
+### Test Organization
+```go
+// GIMBAP - Test file organization
+yourapp/
+├── service/
+│   ├── user_service.go
+│   └── user_service_test.go        # Unit tests
+├── controller/
+│   ├── user_controller.go
+│   └── user_controller_test.go     # Controller tests
+├── integration/
+│   └── user_integration_test.go    # Integration tests
+├── e2e/
+│   └── user_e2e_test.go           # End-to-end tests
+└── testutil/
+    ├── fixtures.go                 # Test data
+    ├── helpers.go                  # Test helpers
+    └── mocks/                      # Generated mocks
+```
+
+### Test Utilities
+```go
+// GIMBAP - Common test utilities
+package testutil
+
+import (
+    "database/sql"
+    "testing"
+    
+    "github.com/DATA-DOG/go-sqlmock"
+    "github.com/gin-gonic/gin"
+)
+
+// Database test helper
+func SetupTestDB(t *testing.T) (*sql.DB, sqlmock.Sqlmock) {
+    db, mock, err := sqlmock.New()
+    if err != nil {
+        t.Fatalf("Failed to create mock DB: %v", err)
+    }
+    
+    t.Cleanup(func() {
+        db.Close()
+    })
+    
+    return db, mock
+}
+
+// Gin test helper
+func SetupTestRouter() *gin.Engine {
+    gin.SetMode(gin.TestMode)
+    router := gin.New()
+    router.Use(gin.Recovery())
+    return router
+}
+
+// Test fixtures
+type Fixtures struct {
+    Users    []*User
+    Products []*Product
+}
+
+func LoadFixtures() *Fixtures {
+    return &Fixtures{
+        Users: []*User{
+            {ID: 1, Email: "user1@test.com", Name: "User 1"},
+            {ID: 2, Email: "user2@test.com", Name: "User 2"},
+        },
+        Products: []*Product{
+            {ID: 1, Name: "Product 1", Price: 100},
+            {ID: 2, Name: "Product 2", Price: 200},
+        },
+    }
+}
+
+// Test data builder pattern
+type UserBuilder struct {
+    user *User
+}
+
+func NewUserBuilder() *UserBuilder {
+    return &UserBuilder{
+        user: &User{
+            Email: "default@test.com",
+            Name:  "Default User",
+        },
+    }
+}
+
+func (b *UserBuilder) WithEmail(email string) *UserBuilder {
+    b.user.Email = email
+    return b
+}
+
+func (b *UserBuilder) WithName(name string) *UserBuilder {
+    b.user.Name = name
+    return b
+}
+
+func (b *UserBuilder) Build() *User {
+    return b.user
+}
+
+// Usage:
+// user := NewUserBuilder().
+//     WithEmail("custom@test.com").
+//     WithName("Custom User").
+//     Build()
+```
+
+### Benchmarking
+```go
+// GIMBAP - Performance benchmarks
+package benchmark_test
+
+import (
+    "testing"
+    "yourapp/service"
+)
+
+func BenchmarkUserService_CreateUser(b *testing.B) {
+    // Setup
+    userService := setupBenchmarkService()
+    dto := &UserDto{
+        Email:    "bench@test.com",
+        Password: "password",
+    }
+    
+    // Reset timer to exclude setup
+    b.ResetTimer()
+    
+    // Run benchmark
+    for i := 0; i < b.N; i++ {
+        _, _ = userService.CreateUser(context.Background(), dto)
+    }
+}
+
+func BenchmarkUserService_Parallel(b *testing.B) {
+    userService := setupBenchmarkService()
+    
+    b.RunParallel(func(pb *testing.PB) {
+        dto := &UserDto{
+            Email:    "bench@test.com",
+            Password: "password",
+        }
+        
+        for pb.Next() {
+            _, _ = userService.CreateUser(context.Background(), dto)
+        }
+    })
+}
+
+// Memory allocation benchmark
+func BenchmarkUserService_Memory(b *testing.B) {
+    userService := setupBenchmarkService()
+    
+    b.ReportAllocs()
+    b.ResetTimer()
+    
+    for i := 0; i < b.N; i++ {
+        _ = userService.ProcessUsers(1000)
+    }
+}
+```
+
+## Summary
+
+This guide covered testing strategies for migrating from Spring Boot to GIMBAP:
+
+### Key Testing Patterns
+
+| Spring Boot | GIMBAP |
+|------------|---------|
+| JUnit + Mockito | testify + gomock |
+| `@MockBean` | Mock interfaces |
+| `@DataJpaTest` | Test with real/mock DB |
+| `@WebMvcTest` | httptest package |
+| TestContainers | testcontainers-go |
+| `@SpringBootTest` | Full app integration tests |
+
+### Best Practices
+
+1. **Unit Tests**: Use table-driven tests for comprehensive coverage
+2. **Mocking**: Use interfaces for easy mocking, consider code generation for mocks
+3. **Integration Tests**: Use httptest for API testing without starting a real server
+4. **E2E Tests**: Use testcontainers for realistic environment testing
+5. **Test Organization**: Keep tests close to code, use separate packages for integration/e2e
+6. **Benchmarking**: Include performance tests for critical paths
+
+### Testing Commands
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with coverage
+go test -cover ./...
+
+# Generate coverage report
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+
+# Run specific tests
+go test -run TestUserService ./service
+
+# Run benchmarks
+go test -bench=. ./...
+
+# Run with race detection
+go test -race ./...
+```
+
+## Next Steps
+
+Congratulations! You've completed the Spring Boot to GIMBAP migration guide. For more information:
+
+- Review the [GIMBAP documentation](/)
+- Explore [example projects](/examples)
+- Join the [community](/community)

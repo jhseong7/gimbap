@@ -1,0 +1,1579 @@
+# Step 4: Async Processing and Scheduling
+
+This guide demonstrates how to convert Spring Boot's async processing, scheduled tasks, and event-driven patterns to GIMBAP using goroutines and channels.
+
+## Async Processing
+
+### Spring @Async
+
+```java
+// src/main/java/com/example/demo/config/AsyncConfig.java
+package com.example.demo.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
+import java.util.concurrent.Executor;
+
+@Configuration
+@EnableAsync
+public class AsyncConfig {
+    
+    @Bean(name = "taskExecutor")
+    public Executor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(2);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(500);
+        executor.setThreadNamePrefix("Async-");
+        executor.initialize();
+        return executor;
+    }
+}
+
+// Service with async methods
+@Service
+@Slf4j
+public class EmailService {
+    
+    @Async
+    public CompletableFuture<EmailResult> sendEmail(String to, String subject, String body) {
+        log.info("Sending email to {} on thread {}", to, Thread.currentThread().getName());
+        
+        try {
+            // Simulate email sending
+            Thread.sleep(2000);
+            
+            EmailResult result = new EmailResult(true, "Email sent successfully");
+            return CompletableFuture.completedFuture(result);
+        } catch (Exception e) {
+            return CompletableFuture.completedFuture(
+                new EmailResult(false, e.getMessage())
+            );
+        }
+    }
+    
+    @Async("taskExecutor")
+    public void sendBulkEmails(List<EmailRequest> requests) {
+        log.info("Processing {} emails", requests.size());
+        
+        requests.parallelStream().forEach(request -> {
+            try {
+                sendEmailSync(request);
+            } catch (Exception e) {
+                log.error("Failed to send email to {}", request.getTo(), e);
+            }
+        });
+    }
+    
+    @Async
+    @Transactional
+    public CompletableFuture<Void> processOrderAsync(Order order) {
+        // Process order asynchronously
+        orderRepository.save(order);
+        notificationService.notifyCustomer(order.getCustomerId());
+        inventoryService.updateStock(order.getItems());
+        
+        return CompletableFuture.completedFuture(null);
+    }
+}
+```
+
+### GIMBAP Async with Goroutines
+
+```go
+// internal/async/executor.go
+package async
+
+import (
+    "context"
+    "sync"
+    "time"
+    
+    "github.com/jhseong7/gimbap"
+)
+
+// TaskExecutor manages goroutines and concurrent task execution
+type TaskExecutor struct {
+    workerPool chan struct{}
+    wg         sync.WaitGroup
+    ctx        context.Context
+    cancel     context.CancelFunc
+}
+
+func NewTaskExecutor(maxWorkers int) *TaskExecutor {
+    ctx, cancel := context.WithCancel(context.Background())
+    return &TaskExecutor{
+        workerPool: make(chan struct{}, maxWorkers),
+        ctx:        ctx,
+        cancel:     cancel,
+    }
+}
+
+func (e *TaskExecutor) Execute(task func()) {
+    e.wg.Add(1)
+    go func() {
+        defer e.wg.Done()
+        
+        // Acquire worker slot
+        e.workerPool <- struct{}{}
+        defer func() { <-e.workerPool }()
+        
+        // Execute task
+        task()
+    }()
+}
+
+func (e *TaskExecutor) ExecuteWithContext(ctx context.Context, task func(context.Context)) {
+    e.wg.Add(1)
+    go func() {
+        defer e.wg.Done()
+        
+        // Acquire worker slot
+        e.workerPool <- struct{}{}
+        defer func() { <-e.workerPool }()
+        
+        // Execute task with context
+        select {
+        case <-ctx.Done():
+            return
+        default:
+            task(ctx)
+        }
+    }()
+}
+
+func (e *TaskExecutor) Wait() {
+    e.wg.Wait()
+}
+
+func (e *TaskExecutor) Shutdown() {
+    e.cancel()
+    e.Wait()
+}
+
+var TaskExecutorProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name: "TaskExecutor",
+    Instantiator: func() *TaskExecutor {
+        return NewTaskExecutor(10) // Max 10 concurrent workers
+    },
+})
+
+// EmailService with async methods
+type EmailService struct {
+    executor *TaskExecutor
+    logger   *log.Logger
+}
+
+func NewEmailService(executor *TaskExecutor) *EmailService {
+    return &EmailService{
+        executor: executor,
+        logger:   log.New(log.Writer(), "[EmailService] ", log.LstdFlags),
+    }
+}
+
+// Async method returning a future-like channel
+func (s *EmailService) SendEmailAsync(to, subject, body string) <-chan EmailResult {
+    resultChan := make(chan EmailResult, 1)
+    
+    s.executor.Execute(func() {
+        s.logger.Printf("Sending email to %s", to)
+        
+        // Simulate email sending
+        time.Sleep(2 * time.Second)
+        
+        // Send result through channel
+        resultChan <- EmailResult{
+            Success: true,
+            Message: "Email sent successfully",
+        }
+        close(resultChan)
+    })
+    
+    return resultChan
+}
+
+// Fire-and-forget async method
+func (s *EmailService) SendBulkEmails(requests []EmailRequest) {
+    s.executor.Execute(func() {
+        s.logger.Printf("Processing %d emails", len(requests))
+        
+        // Use goroutines for parallel processing
+        var wg sync.WaitGroup
+        semaphore := make(chan struct{}, 5) // Limit to 5 concurrent sends
+        
+        for _, request := range requests {
+            wg.Add(1)
+            go func(req EmailRequest) {
+                defer wg.Done()
+                
+                semaphore <- struct{}{}
+                defer func() { <-semaphore }()
+                
+                if err := s.sendEmailSync(req); err != nil {
+                    s.logger.Printf("Failed to send email to %s: %v", req.To, err)
+                }
+            }(request)
+        }
+        
+        wg.Wait()
+    })
+}
+
+// Async with transaction-like behavior
+func (s *EmailService) ProcessOrderAsync(order *Order) <-chan error {
+    errChan := make(chan error, 1)
+    
+    s.executor.Execute(func() {
+        // Use a transaction-like pattern
+        if err := s.processOrderTransaction(order); err != nil {
+            errChan <- err
+        } else {
+            errChan <- nil
+        }
+        close(errChan)
+    })
+    
+    return errChan
+}
+
+func (s *EmailService) processOrderTransaction(order *Order) error {
+    // Simulate transaction
+    tx := s.db.Begin()
+    defer func() {
+        if r := recover(); r != nil {
+            tx.Rollback()
+        }
+    }()
+    
+    if err := s.orderRepo.SaveTx(tx, order); err != nil {
+        tx.Rollback()
+        return err
+    }
+    
+    // These can be async within the transaction
+    go s.notificationService.NotifyCustomer(order.CustomerID)
+    go s.inventoryService.UpdateStock(order.Items)
+    
+    return tx.Commit()
+}
+
+type EmailResult struct {
+    Success bool   `json:"success"`
+    Message string `json:"message"`
+}
+
+type EmailRequest struct {
+    To      string `json:"to"`
+    Subject string `json:"subject"`
+    Body    string `json:"body"`
+}
+```
+
+## CompletableFuture Patterns
+
+### Spring CompletableFuture
+
+```java
+@Service
+public class OrderProcessingService {
+    
+    @Async
+    public CompletableFuture<OrderResult> processOrder(OrderRequest request) {
+        return CompletableFuture
+            .supplyAsync(() -> validateOrder(request))
+            .thenCompose(order -> checkInventory(order))
+            .thenCompose(order -> calculatePricing(order))
+            .thenCompose(order -> createOrder(order))
+            .thenApply(order -> new OrderResult(order.getId(), "Success"))
+            .exceptionally(ex -> new OrderResult(null, ex.getMessage()));
+    }
+    
+    public CompletableFuture<PaymentResult> processPaymentWithRetry(Payment payment) {
+        return CompletableFuture
+            .supplyAsync(() -> processPayment(payment))
+            .thenApply(CompletableFuture::completedFuture)
+            .exceptionally(ex -> {
+                // Retry logic
+                return CompletableFuture
+                    .delayedExecutor(1, TimeUnit.SECONDS)
+                    .execute(() -> processPayment(payment));
+            })
+            .thenCompose(Function.identity());
+    }
+    
+    @Async
+    public CompletableFuture<List<ProductInfo>> fetchProductsParallel(List<Long> productIds) {
+        List<CompletableFuture<ProductInfo>> futures = productIds.stream()
+            .map(id -> CompletableFuture.supplyAsync(() -> fetchProduct(id)))
+            .collect(Collectors.toList());
+        
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+            .thenApply(v -> futures.stream()
+                .map(CompletableFuture::join)
+                .collect(Collectors.toList()));
+    }
+}
+```
+
+### GIMBAP Channels and Goroutines
+
+```go
+// internal/service/order_processing.go
+package service
+
+import (
+    "context"
+    "fmt"
+    "sync"
+    "time"
+)
+
+type OrderProcessingService struct {
+    executor     *async.TaskExecutor
+    orderRepo    *repository.OrderRepository
+    inventoryService *InventoryService
+    pricingService  *PricingService
+}
+
+// Process order with chained operations
+func (s *OrderProcessingService) ProcessOrder(ctx context.Context, request OrderRequest) <-chan OrderResult {
+    resultChan := make(chan OrderResult, 1)
+    
+    go func() {
+        defer close(resultChan)
+        
+        // Chain operations using channels
+        orderChan := s.validateOrderAsync(ctx, request)
+        
+        select {
+        case order := <-orderChan:
+            if order.Error != nil {
+                resultChan <- OrderResult{Error: order.Error}
+                return
+            }
+            
+            // Continue chain
+            inventoryChan := s.checkInventoryAsync(ctx, order.Order)
+            
+            select {
+            case invResult := <-inventoryChan:
+                if invResult.Error != nil {
+                    resultChan <- OrderResult{Error: invResult.Error}
+                    return
+                }
+                
+                // Continue with pricing
+                pricingChan := s.calculatePricingAsync(ctx, invResult.Order)
+                
+                select {
+                case priceResult := <-pricingChan:
+                    if priceResult.Error != nil {
+                        resultChan <- OrderResult{Error: priceResult.Error}
+                        return
+                    }
+                    
+                    // Create order
+                    createChan := s.createOrderAsync(ctx, priceResult.Order)
+                    
+                    select {
+                    case finalResult := <-createChan:
+                        resultChan <- finalResult
+                    case <-ctx.Done():
+                        resultChan <- OrderResult{Error: ctx.Err()}
+                    }
+                    
+                case <-ctx.Done():
+                    resultChan <- OrderResult{Error: ctx.Err()}
+                }
+                
+            case <-ctx.Done():
+                resultChan <- OrderResult{Error: ctx.Err()}
+            }
+            
+        case <-ctx.Done():
+            resultChan <- OrderResult{Error: ctx.Err()}
+        }
+    }()
+    
+    return resultChan
+}
+
+// Alternative: Pipeline pattern
+func (s *OrderProcessingService) ProcessOrderPipeline(ctx context.Context, request OrderRequest) <-chan OrderResult {
+    // Create pipeline stages
+    validated := s.validateOrderStage(ctx, request)
+    checked := s.checkInventoryStage(ctx, validated)
+    priced := s.calculatePricingStage(ctx, checked)
+    created := s.createOrderStage(ctx, priced)
+    
+    return created
+}
+
+// Pipeline stages
+func (s *OrderProcessingService) validateOrderStage(ctx context.Context, request OrderRequest) <-chan OrderData {
+    out := make(chan OrderData, 1)
+    
+    go func() {
+        defer close(out)
+        
+        order, err := s.validateOrder(request)
+        select {
+        case out <- OrderData{Order: order, Error: err}:
+        case <-ctx.Done():
+        }
+    }()
+    
+    return out
+}
+
+func (s *OrderProcessingService) checkInventoryStage(ctx context.Context, in <-chan OrderData) <-chan OrderData {
+    out := make(chan OrderData, 1)
+    
+    go func() {
+        defer close(out)
+        
+        select {
+        case data := <-in:
+            if data.Error != nil {
+                out <- data
+                return
+            }
+            
+            checked, err := s.checkInventory(data.Order)
+            select {
+            case out <- OrderData{Order: checked, Error: err}:
+            case <-ctx.Done():
+            }
+            
+        case <-ctx.Done():
+        }
+    }()
+    
+    return out
+}
+
+// Process payment with retry
+func (s *OrderProcessingService) ProcessPaymentWithRetry(ctx context.Context, payment Payment) <-chan PaymentResult {
+    resultChan := make(chan PaymentResult, 1)
+    
+    go func() {
+        defer close(resultChan)
+        
+        maxRetries := 3
+        backoff := time.Second
+        
+        for i := 0; i < maxRetries; i++ {
+            result, err := s.processPayment(payment)
+            if err == nil {
+                resultChan <- result
+                return
+            }
+            
+            if i < maxRetries-1 {
+                select {
+                case <-time.After(backoff):
+                    backoff *= 2 // Exponential backoff
+                case <-ctx.Done():
+                    resultChan <- PaymentResult{Error: ctx.Err()}
+                    return
+                }
+            }
+        }
+        
+        resultChan <- PaymentResult{Error: fmt.Errorf("payment failed after %d retries", maxRetries)}
+    }()
+    
+    return resultChan
+}
+
+// Fetch products in parallel
+func (s *OrderProcessingService) FetchProductsParallel(ctx context.Context, productIDs []int64) <-chan []ProductInfo {
+    resultChan := make(chan []ProductInfo, 1)
+    
+    go func() {
+        defer close(resultChan)
+        
+        var wg sync.WaitGroup
+        products := make([]ProductInfo, len(productIDs))
+        
+        for i, id := range productIDs {
+            wg.Add(1)
+            go func(index int, productID int64) {
+                defer wg.Done()
+                
+                product, err := s.fetchProduct(ctx, productID)
+                if err != nil {
+                    products[index] = ProductInfo{Error: err}
+                } else {
+                    products[index] = product
+                }
+            }(i, id)
+        }
+        
+        wg.Wait()
+        
+        select {
+        case resultChan <- products:
+        case <-ctx.Done():
+        }
+    }()
+    
+    return resultChan
+}
+
+// Wait for multiple futures
+func WaitAll(ctx context.Context, channels ...<-chan interface{}) <-chan []interface{} {
+    resultChan := make(chan []interface{}, 1)
+    
+    go func() {
+        defer close(resultChan)
+        
+        results := make([]interface{}, len(channels))
+        
+        for i, ch := range channels {
+            select {
+            case result := <-ch:
+                results[i] = result
+            case <-ctx.Done():
+                return
+            }
+        }
+        
+        resultChan <- results
+    }()
+    
+    return resultChan
+}
+```
+
+## Scheduled Tasks
+
+### Spring @Scheduled
+
+```java
+// src/main/java/com/example/demo/scheduling/ScheduledTasks.java
+package com.example.demo.scheduling;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.annotation.SchedulingConfigurer;
+import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import org.springframework.scheduling.support.CronTrigger;
+import org.springframework.stereotype.Component;
+
+import java.time.LocalDateTime;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+
+@Component
+@EnableScheduling
+@Slf4j
+@RequiredArgsConstructor
+public class ScheduledTasks implements SchedulingConfigurer {
+    
+    private final ReportService reportService;
+    private final CacheService cacheService;
+    private final MetricsService metricsService;
+    
+    // Fixed delay - waits 5 seconds after completion
+    @Scheduled(fixedDelay = 5000)
+    public void reportCurrentTime() {
+        log.info("Current time: {}", LocalDateTime.now());
+    }
+    
+    // Fixed rate - runs every 10 seconds
+    @Scheduled(fixedRate = 10000)
+    public void collectMetrics() {
+        metricsService.collectSystemMetrics();
+    }
+    
+    // Cron expression - runs at 2 AM every day
+    @Scheduled(cron = "0 0 2 * * ?")
+    public void generateDailyReport() {
+        log.info("Generating daily report at {}", LocalDateTime.now());
+        reportService.generateDailyReport();
+    }
+    
+    // Cron with zone
+    @Scheduled(cron = "0 0 9-17 * * MON-FRI", zone = "America/New_York")
+    public void businessHoursTask() {
+        log.info("Running business hours task");
+    }
+    
+    // Initial delay
+    @Scheduled(initialDelay = 60000, fixedRate = 300000)
+    public void cleanupCache() {
+        log.info("Cleaning up cache");
+        cacheService.evictExpiredEntries();
+    }
+    
+    // Dynamic scheduling
+    @Override
+    public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
+        taskRegistrar.setScheduler(taskExecutor());
+        
+        taskRegistrar.addTriggerTask(
+            () -> dynamicTask(),
+            triggerContext -> {
+                String cron = getCronExpressionFromDatabase();
+                CronTrigger trigger = new CronTrigger(cron);
+                return trigger.nextExecutionTime(triggerContext);
+            }
+        );
+    }
+    
+    @Bean(destroyMethod = "shutdown")
+    public Executor taskExecutor() {
+        return Executors.newScheduledThreadPool(5);
+    }
+    
+    private void dynamicTask() {
+        log.info("Running dynamic task");
+    }
+}
+```
+
+### GIMBAP Scheduled Tasks
+
+```go
+// internal/scheduling/scheduler.go
+package scheduling
+
+import (
+    "context"
+    "log"
+    "sync"
+    "time"
+    
+    "github.com/jhseong7/gimbap"
+    "github.com/jhseong7/gimbap/microservice"
+    "github.com/robfig/cron/v3"
+)
+
+type ScheduledTasks struct {
+    microservice.IMicroService
+    cron           *cron.Cron
+    reportService  *ReportService
+    cacheService   *CacheService
+    metricsService *MetricsService
+    logger         *log.Logger
+    
+    // For dynamic tasks
+    dynamicTasks map[string]*DynamicTask
+    mu           sync.RWMutex
+    
+    // Context for cancellation
+    ctx    context.Context
+    cancel context.CancelFunc
+}
+
+func NewScheduledTasks(
+    reportService *ReportService,
+    cacheService *CacheService,
+    metricsService *MetricsService,
+) *ScheduledTasks {
+    ctx, cancel := context.WithCancel(context.Background())
+    
+    return &ScheduledTasks{
+        cron:           cron.New(cron.WithLocation(time.UTC)),
+        reportService:  reportService,
+        cacheService:   cacheService,
+        metricsService: metricsService,
+        logger:         log.New(log.Writer(), "[Scheduler] ", log.LstdFlags),
+        dynamicTasks:   make(map[string]*DynamicTask),
+        ctx:            ctx,
+        cancel:         cancel,
+    }
+}
+
+func (s *ScheduledTasks) Start() {
+    s.logger.Println("Starting scheduled tasks")
+    
+    // Fixed delay - waits 5 seconds after completion
+    s.scheduleWithFixedDelay(5*time.Second, s.reportCurrentTime)
+    
+    // Fixed rate - runs every 10 seconds
+    s.scheduleAtFixedRate(10*time.Second, s.collectMetrics)
+    
+    // Cron expression - runs at 2 AM every day
+    s.cron.AddFunc("0 0 2 * * *", s.generateDailyReport)
+    
+    // Cron with specific timezone
+    nyLocation, _ := time.LoadLocation("America/New_York")
+    s.cron.AddFunc("0 0 9-17 * * MON-FRI", s.withLocation(nyLocation, s.businessHoursTask))
+    
+    // Initial delay then fixed rate
+    s.scheduleWithInitialDelay(60*time.Second, 5*time.Minute, s.cleanupCache)
+    
+    // Dynamic scheduling
+    s.startDynamicScheduler()
+    
+    // Start cron scheduler
+    s.cron.Start()
+}
+
+func (s *ScheduledTasks) Stop() {
+    s.logger.Println("Stopping scheduled tasks")
+    s.cancel()
+    s.cron.Stop()
+}
+
+// Fixed delay implementation
+func (s *ScheduledTasks) scheduleWithFixedDelay(delay time.Duration, task func()) {
+    go func() {
+        for {
+            select {
+            case <-s.ctx.Done():
+                return
+            default:
+                task()
+                time.Sleep(delay)
+            }
+        }
+    }()
+}
+
+// Fixed rate implementation
+func (s *ScheduledTasks) scheduleAtFixedRate(period time.Duration, task func()) {
+    go func() {
+        ticker := time.NewTicker(period)
+        defer ticker.Stop()
+        
+        for {
+            select {
+            case <-s.ctx.Done():
+                return
+            case <-ticker.C:
+                go task() // Run in separate goroutine to maintain rate
+            }
+        }
+    }()
+}
+
+// Initial delay then fixed rate
+func (s *ScheduledTasks) scheduleWithInitialDelay(initialDelay, period time.Duration, task func()) {
+    go func() {
+        select {
+        case <-s.ctx.Done():
+            return
+        case <-time.After(initialDelay):
+            // After initial delay, schedule at fixed rate
+            s.scheduleAtFixedRate(period, task)
+        }
+    }()
+}
+
+// Task implementations
+func (s *ScheduledTasks) reportCurrentTime() {
+    s.logger.Printf("Current time: %v", time.Now())
+}
+
+func (s *ScheduledTasks) collectMetrics() {
+    s.metricsService.CollectSystemMetrics()
+}
+
+func (s *ScheduledTasks) generateDailyReport() {
+    s.logger.Printf("Generating daily report at %v", time.Now())
+    s.reportService.GenerateDailyReport()
+}
+
+func (s *ScheduledTasks) businessHoursTask() {
+    s.logger.Println("Running business hours task")
+}
+
+func (s *ScheduledTasks) cleanupCache() {
+    s.logger.Println("Cleaning up cache")
+    s.cacheService.EvictExpiredEntries()
+}
+
+// Helper for timezone-specific tasks
+func (s *ScheduledTasks) withLocation(loc *time.Location, task func()) func() {
+    return func() {
+        // Execute task with specific timezone context
+        task()
+    }
+}
+
+// Dynamic task scheduling
+type DynamicTask struct {
+    ID       string
+    CronExpr string
+    Task     func()
+    EntryID  cron.EntryID
+}
+
+func (s *ScheduledTasks) startDynamicScheduler() {
+    go func() {
+        ticker := time.NewTicker(1 * time.Minute)
+        defer ticker.Stop()
+        
+        for {
+            select {
+            case <-s.ctx.Done():
+                return
+            case <-ticker.C:
+                s.updateDynamicTasks()
+            }
+        }
+    }()
+}
+
+func (s *ScheduledTasks) updateDynamicTasks() {
+    // Get task configurations from database
+    configs := s.getTaskConfigsFromDatabase()
+    
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    
+    // Remove old tasks
+    for id, task := range s.dynamicTasks {
+        if _, exists := configs[id]; !exists {
+            s.cron.Remove(task.EntryID)
+            delete(s.dynamicTasks, id)
+            s.logger.Printf("Removed dynamic task: %s", id)
+        }
+    }
+    
+    // Add or update tasks
+    for id, config := range configs {
+        existing, exists := s.dynamicTasks[id]
+        
+        if !exists || existing.CronExpr != config.CronExpr {
+            // Remove old entry if exists
+            if exists {
+                s.cron.Remove(existing.EntryID)
+            }
+            
+            // Add new entry
+            entryID, err := s.cron.AddFunc(config.CronExpr, config.Task)
+            if err != nil {
+                s.logger.Printf("Failed to add dynamic task %s: %v", id, err)
+                continue
+            }
+            
+            s.dynamicTasks[id] = &DynamicTask{
+                ID:       id,
+                CronExpr: config.CronExpr,
+                Task:     config.Task,
+                EntryID:  entryID,
+            }
+            
+            s.logger.Printf("Added/Updated dynamic task: %s", id)
+        }
+    }
+}
+
+func (s *ScheduledTasks) getTaskConfigsFromDatabase() map[string]*DynamicTask {
+    // Simulate database fetch
+    return map[string]*DynamicTask{
+        "dynamic1": {
+            CronExpr: "*/30 * * * * *", // Every 30 seconds
+            Task: func() {
+                s.logger.Println("Running dynamic task 1")
+            },
+        },
+    }
+}
+
+// Advanced scheduling patterns
+type SchedulerService struct {
+    executor *async.TaskExecutor
+    tasks    map[string]*ScheduledTask
+    mu       sync.RWMutex
+}
+
+type ScheduledTask struct {
+    ID          string
+    Name        string
+    Schedule    Schedule
+    Task        func(context.Context) error
+    LastRun     time.Time
+    NextRun     time.Time
+    Running     bool
+    MaxDuration time.Duration
+}
+
+type Schedule interface {
+    Next(time.Time) time.Time
+}
+
+// Rate limiting for scheduled tasks
+func (s *SchedulerService) ExecuteWithRateLimit(task func(), rateLimit int) {
+    limiter := time.NewTicker(time.Second / time.Duration(rateLimit))
+    defer limiter.Stop()
+    
+    <-limiter.C
+    task()
+}
+
+// Distributed scheduling with lock
+func (s *SchedulerService) ExecuteWithLock(taskID string, task func()) error {
+    // Acquire distributed lock (Redis, database, etc.)
+    lock, err := s.acquireLock(taskID)
+    if err != nil {
+        return fmt.Errorf("failed to acquire lock: %w", err)
+    }
+    defer lock.Release()
+    
+    task()
+    return nil
+}
+
+var ScheduledTasksProvider = microservice.DefineMicroService(
+    microservice.MicroServiceProviderOption{
+        Name:         "ScheduledTasks",
+        Instantiator: NewScheduledTasks,
+    },
+)
+```
+
+## Event-Driven Architecture
+
+### Spring Events
+
+```java
+// Event definitions
+@Getter
+@AllArgsConstructor
+public class OrderCreatedEvent extends ApplicationEvent {
+    private final Long orderId;
+    private final Long customerId;
+    private final BigDecimal amount;
+    
+    public OrderCreatedEvent(Object source, Long orderId, Long customerId, BigDecimal amount) {
+        super(source);
+        this.orderId = orderId;
+        this.customerId = customerId;
+        this.amount = amount;
+    }
+}
+
+// Event publisher
+@Service
+@RequiredArgsConstructor
+public class OrderService {
+    private final ApplicationEventPublisher eventPublisher;
+    
+    @Transactional
+    public Order createOrder(OrderRequest request) {
+        Order order = new Order();
+        // ... create order logic
+        
+        orderRepository.save(order);
+        
+        // Publish event
+        eventPublisher.publishEvent(
+            new OrderCreatedEvent(this, order.getId(), 
+                                order.getCustomerId(), order.getAmount())
+        );
+        
+        return order;
+    }
+}
+
+// Event listeners
+@Component
+@Slf4j
+public class OrderEventListener {
+    
+    @EventListener
+    @Async
+    public void handleOrderCreated(OrderCreatedEvent event) {
+        log.info("Order created: {}", event.getOrderId());
+        // Send confirmation email
+    }
+    
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void handleOrderCreatedAfterCommit(OrderCreatedEvent event) {
+        // Execute after transaction commits
+        updateInventory(event.getOrderId());
+    }
+    
+    @EventListener(condition = "#event.amount > 1000")
+    public void handleLargeOrder(OrderCreatedEvent event) {
+        // Special handling for large orders
+        notifyManagement(event);
+    }
+    
+    @EventListener(classes = {OrderCreatedEvent.class, OrderUpdatedEvent.class})
+    public void handleMultipleEvents(ApplicationEvent event) {
+        // Handle multiple event types
+    }
+}
+```
+
+### GIMBAP Event System
+
+```go
+// internal/events/event_bus.go
+package events
+
+import (
+    "context"
+    "reflect"
+    "sync"
+    
+    "github.com/jhseong7/gimbap"
+)
+
+// Event interface
+type Event interface {
+    GetEventType() string
+}
+
+// OrderCreatedEvent
+type OrderCreatedEvent struct {
+    OrderID    int64   `json:"orderId"`
+    CustomerID int64   `json:"customerId"`
+    Amount     float64 `json:"amount"`
+    Timestamp  time.Time
+}
+
+func (e OrderCreatedEvent) GetEventType() string {
+    return "order.created"
+}
+
+// EventBus handles event publishing and subscription
+type EventBus struct {
+    subscribers map[string][]EventHandler
+    mu          sync.RWMutex
+    
+    // For async event handling
+    eventQueue chan EventWrapper
+    workers    int
+    ctx        context.Context
+    cancel     context.CancelFunc
+    wg         sync.WaitGroup
+}
+
+type EventHandler func(context.Context, Event) error
+
+type EventWrapper struct {
+    Event   Event
+    Context context.Context
+}
+
+func NewEventBus(workers int) *EventBus {
+    ctx, cancel := context.WithCancel(context.Background())
+    
+    bus := &EventBus{
+        subscribers: make(map[string][]EventHandler),
+        eventQueue:  make(chan EventWrapper, 1000),
+        workers:     workers,
+        ctx:         ctx,
+        cancel:      cancel,
+    }
+    
+    // Start worker goroutines
+    for i := 0; i < workers; i++ {
+        bus.wg.Add(1)
+        go bus.worker()
+    }
+    
+    return bus
+}
+
+func (b *EventBus) worker() {
+    defer b.wg.Done()
+    
+    for {
+        select {
+        case <-b.ctx.Done():
+            return
+        case wrapper := <-b.eventQueue:
+            b.processEvent(wrapper)
+        }
+    }
+}
+
+func (b *EventBus) processEvent(wrapper EventWrapper) {
+    eventType := wrapper.Event.GetEventType()
+    
+    b.mu.RLock()
+    handlers := b.subscribers[eventType]
+    b.mu.RUnlock()
+    
+    for _, handler := range handlers {
+        if err := handler(wrapper.Context, wrapper.Event); err != nil {
+            // Log error
+            log.Printf("Error handling event %s: %v", eventType, err)
+        }
+    }
+}
+
+// Subscribe to events
+func (b *EventBus) Subscribe(eventType string, handler EventHandler) {
+    b.mu.Lock()
+    defer b.mu.Unlock()
+    
+    b.subscribers[eventType] = append(b.subscribers[eventType], handler)
+}
+
+// Subscribe with condition
+func (b *EventBus) SubscribeWithCondition(eventType string, condition func(Event) bool, handler EventHandler) {
+    wrappedHandler := func(ctx context.Context, event Event) error {
+        if condition(event) {
+            return handler(ctx, event)
+        }
+        return nil
+    }
+    
+    b.Subscribe(eventType, wrappedHandler)
+}
+
+// Publish event synchronously
+func (b *EventBus) Publish(ctx context.Context, event Event) {
+    b.processEvent(EventWrapper{Event: event, Context: ctx})
+}
+
+// Publish event asynchronously
+func (b *EventBus) PublishAsync(ctx context.Context, event Event) {
+    select {
+    case b.eventQueue <- EventWrapper{Event: event, Context: ctx}:
+    case <-ctx.Done():
+    }
+}
+
+// Shutdown the event bus
+func (b *EventBus) Shutdown() {
+    b.cancel()
+    close(b.eventQueue)
+    b.wg.Wait()
+}
+
+var EventBusProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name: "EventBus",
+    Instantiator: func() *EventBus {
+        return NewEventBus(5) // 5 worker goroutines
+    },
+})
+
+// OrderService with events
+type OrderService struct {
+    orderRepo *repository.OrderRepository
+    eventBus  *EventBus
+}
+
+func NewOrderService(orderRepo *repository.OrderRepository, eventBus *EventBus) *OrderService {
+    return &OrderService{
+        orderRepo: orderRepo,
+        eventBus:  eventBus,
+    }
+}
+
+func (s *OrderService) CreateOrder(ctx context.Context, request OrderRequest) (*Order, error) {
+    // Begin transaction
+    tx, err := s.orderRepo.BeginTx(ctx)
+    if err != nil {
+        return nil, err
+    }
+    defer tx.Rollback()
+    
+    // Create order
+    order := &Order{
+        CustomerID: request.CustomerID,
+        Amount:     request.Amount,
+        // ... other fields
+    }
+    
+    if err := s.orderRepo.SaveTx(tx, order); err != nil {
+        return nil, err
+    }
+    
+    // Commit transaction
+    if err := tx.Commit(); err != nil {
+        return nil, err
+    }
+    
+    // Publish event after commit
+    event := OrderCreatedEvent{
+        OrderID:    order.ID,
+        CustomerID: order.CustomerID,
+        Amount:     order.Amount,
+        Timestamp:  time.Now(),
+    }
+    
+    s.eventBus.PublishAsync(ctx, event)
+    
+    return order, nil
+}
+
+// Event listeners
+type OrderEventListener struct {
+    microservice.IMicroService
+    eventBus         *EventBus
+    emailService     *EmailService
+    inventoryService *InventoryService
+}
+
+func NewOrderEventListener(
+    eventBus *EventBus,
+    emailService *EmailService,
+    inventoryService *InventoryService,
+) *OrderEventListener {
+    return &OrderEventListener{
+        eventBus:         eventBus,
+        emailService:     emailService,
+        inventoryService: inventoryService,
+    }
+}
+
+func (l *OrderEventListener) Start() {
+    // Subscribe to events
+    l.eventBus.Subscribe("order.created", l.handleOrderCreated)
+    
+    // Subscribe with condition (large orders)
+    l.eventBus.SubscribeWithCondition("order.created",
+        func(e Event) bool {
+            if event, ok := e.(OrderCreatedEvent); ok {
+                return event.Amount > 1000
+            }
+            return false
+        },
+        l.handleLargeOrder,
+    )
+}
+
+func (l *OrderEventListener) Stop() {
+    // Cleanup if needed
+}
+
+func (l *OrderEventListener) handleOrderCreated(ctx context.Context, event Event) error {
+    orderEvent, ok := event.(OrderCreatedEvent)
+    if !ok {
+        return fmt.Errorf("invalid event type")
+    }
+    
+    log.Printf("Order created: %d", orderEvent.OrderID)
+    
+    // Send confirmation email asynchronously
+    go l.emailService.SendOrderConfirmation(orderEvent.CustomerID, orderEvent.OrderID)
+    
+    return nil
+}
+
+func (l *OrderEventListener) handleLargeOrder(ctx context.Context, event Event) error {
+    orderEvent := event.(OrderCreatedEvent)
+    
+    log.Printf("Large order detected: %d, amount: %.2f", orderEvent.OrderID, orderEvent.Amount)
+    
+    // Notify management
+    return l.notifyManagement(orderEvent)
+}
+
+// Transactional event pattern
+type TransactionalEventPublisher struct {
+    eventBus *EventBus
+    pending  []Event
+    mu       sync.Mutex
+}
+
+func (p *TransactionalEventPublisher) PublishAfterCommit(event Event) {
+    p.mu.Lock()
+    defer p.mu.Unlock()
+    
+    p.pending = append(p.pending, event)
+}
+
+func (p *TransactionalEventPublisher) Commit(ctx context.Context) {
+    p.mu.Lock()
+    events := p.pending
+    p.pending = nil
+    p.mu.Unlock()
+    
+    for _, event := range events {
+        p.eventBus.PublishAsync(ctx, event)
+    }
+}
+
+func (p *TransactionalEventPublisher) Rollback() {
+    p.mu.Lock()
+    defer p.mu.Unlock()
+    
+    p.pending = nil
+}
+```
+
+## Message Queue Integration
+
+### Spring with RabbitMQ/Kafka
+
+```java
+// RabbitMQ configuration
+@Configuration
+@EnableRabbit
+public class RabbitConfig {
+    
+    @Bean
+    public Queue orderQueue() {
+        return new Queue("orders", true);
+    }
+    
+    @Bean
+    public TopicExchange exchange() {
+        return new TopicExchange("order-exchange");
+    }
+    
+    @Bean
+    public Binding binding(Queue queue, TopicExchange exchange) {
+        return BindingBuilder.bind(queue).to(exchange).with("order.*");
+    }
+    
+    @Bean
+    public MessageConverter jsonMessageConverter() {
+        return new Jackson2JsonMessageConverter();
+    }
+}
+
+// Message sender
+@Service
+@RequiredArgsConstructor
+public class OrderMessageSender {
+    private final RabbitTemplate rabbitTemplate;
+    
+    public void sendOrderMessage(OrderMessage message) {
+        rabbitTemplate.convertAndSend("order-exchange", "order.created", message);
+    }
+}
+
+// Message listener
+@Component
+@Slf4j
+public class OrderMessageListener {
+    
+    @RabbitListener(queues = "orders")
+    public void receiveMessage(OrderMessage message) {
+        log.info("Received order message: {}", message);
+        processOrder(message);
+    }
+    
+    @KafkaListener(topics = "order-events", groupId = "order-processor")
+    public void consumeOrderEvent(OrderEvent event) {
+        log.info("Consumed order event: {}", event);
+    }
+}
+```
+
+### GIMBAP Message Queue
+
+```go
+// internal/queue/rabbitmq.go
+package queue
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    
+    "github.com/streadway/amqp"
+)
+
+type RabbitMQClient struct {
+    conn    *amqp.Connection
+    channel *amqp.Channel
+}
+
+func NewRabbitMQClient(url string) (*RabbitMQClient, error) {
+    conn, err := amqp.Dial(url)
+    if err != nil {
+        return nil, err
+    }
+    
+    channel, err := conn.Channel()
+    if err != nil {
+        return nil, err
+    }
+    
+    return &RabbitMQClient{
+        conn:    conn,
+        channel: channel,
+    }, nil
+}
+
+func (c *RabbitMQClient) DeclareQueue(name string) error {
+    _, err := c.channel.QueueDeclare(
+        name,  // name
+        true,  // durable
+        false, // delete when unused
+        false, // exclusive
+        false, // no-wait
+        nil,   // arguments
+    )
+    return err
+}
+
+func (c *RabbitMQClient) Publish(exchange, routingKey string, message interface{}) error {
+    body, err := json.Marshal(message)
+    if err != nil {
+        return err
+    }
+    
+    return c.channel.Publish(
+        exchange,
+        routingKey,
+        false, // mandatory
+        false, // immediate
+        amqp.Publishing{
+            ContentType: "application/json",
+            Body:        body,
+        },
+    )
+}
+
+func (c *RabbitMQClient) Consume(queue string, handler func([]byte) error) error {
+    msgs, err := c.channel.Consume(
+        queue,
+        "",    // consumer
+        false, // auto-ack
+        false, // exclusive
+        false, // no-local
+        false, // no-wait
+        nil,   // args
+    )
+    if err != nil {
+        return err
+    }
+    
+    go func() {
+        for msg := range msgs {
+            if err := handler(msg.Body); err != nil {
+                msg.Nack(false, true) // Requeue on error
+            } else {
+                msg.Ack(false)
+            }
+        }
+    }()
+    
+    return nil
+}
+
+func (c *RabbitMQClient) Close() {
+    c.channel.Close()
+    c.conn.Close()
+}
+
+// Message queue service
+type MessageQueueService struct {
+    client *RabbitMQClient
+    logger *log.Logger
+}
+
+func NewMessageQueueService(config *Config) (*MessageQueueService, error) {
+    client, err := NewRabbitMQClient(config.RabbitMQURL)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Setup queues and exchanges
+    if err := client.DeclareQueue("orders"); err != nil {
+        return nil, err
+    }
+    
+    return &MessageQueueService{
+        client: client,
+        logger: log.New(log.Writer(), "[MQ] ", log.LstdFlags),
+    }, nil
+}
+
+func (s *MessageQueueService) SendOrderMessage(message OrderMessage) error {
+    return s.client.Publish("order-exchange", "order.created", message)
+}
+
+func (s *MessageQueueService) StartConsumer(ctx context.Context) error {
+    return s.client.Consume("orders", func(body []byte) error {
+        var message OrderMessage
+        if err := json.Unmarshal(body, &message); err != nil {
+            return err
+        }
+        
+        s.logger.Printf("Received order message: %+v", message)
+        return s.processOrder(ctx, message)
+    })
+}
+
+// Simple in-memory queue for development
+type InMemoryQueue struct {
+    queues map[string]chan Message
+    mu     sync.RWMutex
+}
+
+func NewInMemoryQueue() *InMemoryQueue {
+    return &InMemoryQueue{
+        queues: make(map[string]chan Message),
+    }
+}
+
+func (q *InMemoryQueue) CreateQueue(name string, size int) {
+    q.mu.Lock()
+    defer q.mu.Unlock()
+    
+    q.queues[name] = make(chan Message, size)
+}
+
+func (q *InMemoryQueue) Send(queueName string, message Message) error {
+    q.mu.RLock()
+    queue, exists := q.queues[queueName]
+    q.mu.RUnlock()
+    
+    if !exists {
+        return fmt.Errorf("queue %s not found", queueName)
+    }
+    
+    select {
+    case queue <- message:
+        return nil
+    default:
+        return fmt.Errorf("queue %s is full", queueName)
+    }
+}
+
+func (q *InMemoryQueue) Receive(queueName string) (<-chan Message, error) {
+    q.mu.RLock()
+    defer q.mu.RUnlock()
+    
+    queue, exists := q.queues[queueName]
+    if !exists {
+        return nil, fmt.Errorf("queue %s not found", queueName)
+    }
+    
+    return queue, nil
+}
+```
+
+## Best Practices
+
+1. **Goroutine Management**
+   - Always use context for cancellation
+   - Limit concurrent goroutines with worker pools
+   - Handle panics in goroutines
+
+2. **Channel Usage**
+   - Buffer channels appropriately
+   - Always close channels when done
+   - Use select for non-blocking operations
+
+3. **Scheduling**
+   - Use proper timezone handling
+   - Implement distributed locking for clustered deployments
+   - Monitor scheduled task execution
+
+4. **Event Handling**
+   - Make events immutable
+   - Use async processing for heavy operations
+   - Implement proper error handling and retries
+
+5. **Message Queues**
+   - Implement proper acknowledgment
+   - Handle poison messages
+   - Monitor queue depth and consumer lag
+
+## Next Steps
+
+- [Advanced Patterns →](./05-advanced)
+- [Testing →](./06-testing)
+- [Back to Overview ←](../spring-to-gimbap)

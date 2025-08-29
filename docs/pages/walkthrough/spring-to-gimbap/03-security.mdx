@@ -1,0 +1,1521 @@
+# Step 3: Spring Security to GIMBAP Auth
+
+This guide demonstrates how to convert Spring Security configurations, authentication, and authorization patterns to GIMBAP.
+
+## Security Configuration
+
+### Spring Security Configuration
+
+```java
+// src/main/java/com/example/demo/config/SecurityConfig.java
+package com.example.demo.config;
+
+import com.example.demo.security.JwtAuthenticationEntryPoint;
+import com.example.demo.security.JwtAuthenticationFilter;
+import lombok.RequiredArgsConstructor;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.Arrays;
+
+@Configuration
+@EnableWebSecurity
+@EnableGlobalMethodSecurity(
+    prePostEnabled = true,
+    securedEnabled = true,
+    jsr250Enabled = true
+)
+@RequiredArgsConstructor
+public class SecurityConfig {
+
+    private final UserDetailsService userDetailsService;
+    private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
+    private final JwtAuthenticationFilter jwtAuthenticationFilter;
+
+    @Bean
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public DaoAuthenticationProvider authenticationProvider() {
+        DaoAuthenticationProvider authProvider = new DaoAuthenticationProvider();
+        authProvider.setUserDetailsService(userDetailsService);
+        authProvider.setPasswordEncoder(passwordEncoder());
+        return authProvider;
+    }
+
+    @Bean
+    public AuthenticationManager authenticationManager(
+            AuthenticationConfiguration authConfig) throws Exception {
+        return authConfig.getAuthenticationManager();
+    }
+
+    @Bean
+    public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        http.cors().and().csrf().disable()
+            .exceptionHandling()
+                .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+            .and()
+            .sessionManagement()
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            .and()
+            .authorizeRequests()
+                .antMatchers("/api/auth/**").permitAll()
+                .antMatchers("/api/public/**").permitAll()
+                .antMatchers("/swagger-ui/**", "/v3/api-docs/**").permitAll()
+                .antMatchers("/api/admin/**").hasRole("ADMIN")
+                .antMatchers("/api/user/**").hasAnyRole("USER", "ADMIN")
+                .anyRequest().authenticated();
+
+        http.authenticationProvider(authenticationProvider());
+        http.addFilterBefore(jwtAuthenticationFilter, 
+                           UsernamePasswordAuthenticationFilter.class);
+
+        return http.build();
+    }
+
+    @Bean
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+        configuration.setAllowedOrigins(Arrays.asList("http://localhost:3000"));
+        configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE"));
+        configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setAllowCredentials(true);
+        
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", configuration);
+        return source;
+    }
+}
+```
+
+### GIMBAP Security Configuration
+
+```go
+// internal/security/config.go
+package security
+
+import (
+    "github.com/jhseong7/gimbap"
+    "golang.org/x/crypto/bcrypt"
+)
+
+// SecurityConfig holds security-related configuration
+type SecurityConfig struct {
+    JWTSecret         string
+    JWTExpiration     int    // in seconds
+    RefreshExpiration int    // in seconds
+    BCryptCost        int
+    AllowedOrigins    []string
+}
+
+// PasswordEncoder handles password hashing and verification
+type PasswordEncoder struct {
+    cost int
+}
+
+func NewPasswordEncoder() *PasswordEncoder {
+    return &PasswordEncoder{
+        cost: bcrypt.DefaultCost,
+    }
+}
+
+func (e *PasswordEncoder) Encode(password string) (string, error) {
+    bytes, err := bcrypt.GenerateFromPassword([]byte(password), e.cost)
+    if err != nil {
+        return "", err
+    }
+    return string(bytes), nil
+}
+
+func (e *PasswordEncoder) Matches(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+    return err == nil
+}
+
+var PasswordEncoderProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "PasswordEncoder",
+    Instantiator: NewPasswordEncoder,
+})
+
+// SecurityMiddleware configures the security middleware chain
+func SecurityMiddleware(
+    jwtFilter *JWTAuthenticationFilter,
+    corsMiddleware *CORSMiddleware,
+    authEntryPoint *AuthenticationEntryPoint,
+) []gin.HandlerFunc {
+    return []gin.HandlerFunc{
+        corsMiddleware.Handle(),
+        authEntryPoint.Handle(),
+        // JWT filter is applied per-route, not globally
+    }
+}
+
+// Route security configuration
+type RouteSecurityConfig struct {
+    PublicPaths     []string
+    AdminPaths      []string
+    UserPaths       []string
+    AuthenticatedPaths []string
+}
+
+func DefaultRouteSecurityConfig() *RouteSecurityConfig {
+    return &RouteSecurityConfig{
+        PublicPaths: []string{
+            "/api/auth/login",
+            "/api/auth/register",
+            "/api/public/*",
+            "/swagger/*",
+            "/health",
+        },
+        AdminPaths: []string{
+            "/api/admin/*",
+        },
+        UserPaths: []string{
+            "/api/user/*",
+        },
+        AuthenticatedPaths: []string{
+            "/api/*",
+        },
+    }
+}
+```
+
+## User Details Service
+
+### Spring UserDetailsService
+
+```java
+// src/main/java/com/example/demo/security/CustomUserDetailsService.java
+package com.example.demo.security;
+
+import com.example.demo.entity.User;
+import com.example.demo.repository.UserRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.Collection;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class CustomUserDetailsService implements UserDetailsService {
+
+    private final UserRepository userRepository;
+
+    @Override
+    @Transactional
+    public UserDetails loadUserByUsername(String email) 
+            throws UsernameNotFoundException {
+        User user = userRepository.findByEmail(email)
+            .orElseThrow(() -> 
+                new UsernameNotFoundException("User not found: " + email));
+
+        return UserPrincipal.create(user);
+    }
+
+    @Transactional
+    public UserDetails loadUserById(Long id) {
+        User user = userRepository.findById(id)
+            .orElseThrow(() -> 
+                new UsernameNotFoundException("User not found with id: " + id));
+
+        return UserPrincipal.create(user);
+    }
+}
+
+// UserPrincipal class
+@Getter
+@AllArgsConstructor
+public class UserPrincipal implements UserDetails {
+    private Long id;
+    private String email;
+    private String password;
+    private Collection<? extends GrantedAuthority> authorities;
+    private boolean enabled;
+
+    public static UserPrincipal create(User user) {
+        Set<GrantedAuthority> authorities = user.getRoles().stream()
+            .map(role -> new SimpleGrantedAuthority("ROLE_" + role.getName()))
+            .collect(Collectors.toSet());
+
+        return new UserPrincipal(
+            user.getId(),
+            user.getEmail(),
+            user.getPassword(),
+            authorities,
+            user.isEnabled()
+        );
+    }
+
+    @Override
+    public String getUsername() {
+        return email;
+    }
+
+    @Override
+    public boolean isAccountNonExpired() {
+        return true;
+    }
+
+    @Override
+    public boolean isAccountNonLocked() {
+        return true;
+    }
+
+    @Override
+    public boolean isCredentialsNonExpired() {
+        return true;
+    }
+}
+```
+
+### GIMBAP User Service
+
+```go
+// internal/security/user_service.go
+package security
+
+import (
+    "fmt"
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/entity"
+    "myapp/internal/repository"
+)
+
+// UserPrincipal represents the authenticated user
+type UserPrincipal struct {
+    ID          int64    `json:"id"`
+    Email       string   `json:"email"`
+    Password    string   `json:"-"`
+    Roles       []string `json:"roles"`
+    Enabled     bool     `json:"enabled"`
+    Authorities []string `json:"authorities"`
+}
+
+func (u *UserPrincipal) GetUsername() string {
+    return u.Email
+}
+
+func (u *UserPrincipal) HasRole(role string) bool {
+    for _, r := range u.Roles {
+        if r == role {
+            return true
+        }
+    }
+    return false
+}
+
+func (u *UserPrincipal) HasAuthority(authority string) bool {
+    for _, a := range u.Authorities {
+        if a == authority {
+            return true
+        }
+    }
+    return false
+}
+
+// UserDetailsService loads user details for authentication
+type UserDetailsService struct {
+    userRepo *repository.UserRepository
+}
+
+func NewUserDetailsService(userRepo *repository.UserRepository) *UserDetailsService {
+    return &UserDetailsService{
+        userRepo: userRepo,
+    }
+}
+
+func (s *UserDetailsService) LoadUserByUsername(email string) (*UserPrincipal, error) {
+    user, err := s.userRepo.FindByEmail(email)
+    if err != nil {
+        return nil, err
+    }
+    if user == nil {
+        return nil, fmt.Errorf("user not found: %s", email)
+    }
+    
+    return s.createUserPrincipal(user), nil
+}
+
+func (s *UserDetailsService) LoadUserById(id int64) (*UserPrincipal, error) {
+    user, err := s.userRepo.FindById(id)
+    if err != nil {
+        return nil, err
+    }
+    if user == nil {
+        return nil, fmt.Errorf("user not found with id: %d", id)
+    }
+    
+    return s.createUserPrincipal(user), nil
+}
+
+func (s *UserDetailsService) createUserPrincipal(user *entity.User) *UserPrincipal {
+    authorities := make([]string, len(user.Roles))
+    for i, role := range user.Roles {
+        authorities[i] = "ROLE_" + role.Name
+    }
+    
+    roleNames := make([]string, len(user.Roles))
+    for i, role := range user.Roles {
+        roleNames[i] = role.Name
+    }
+    
+    return &UserPrincipal{
+        ID:          user.ID,
+        Email:       user.Email,
+        Password:    user.Password,
+        Roles:       roleNames,
+        Enabled:     user.Enabled,
+        Authorities: authorities,
+    }
+}
+
+var UserDetailsServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "UserDetailsService",
+    Instantiator: NewUserDetailsService,
+})
+```
+
+## JWT Implementation
+
+### Spring JWT Filter
+
+```java
+// src/main/java/com/example/demo/security/JwtAuthenticationFilter.java
+package com.example.demo.security;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import javax.servlet.FilterChain;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+@Component
+@RequiredArgsConstructor
+@Slf4j
+public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    private final JwtTokenProvider tokenProvider;
+    private final CustomUserDetailsService userDetailsService;
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request,
+                                  HttpServletResponse response,
+                                  FilterChain filterChain)
+            throws ServletException, IOException {
+        try {
+            String jwt = getJwtFromRequest(request);
+
+            if (StringUtils.hasText(jwt) && tokenProvider.validateToken(jwt)) {
+                Long userId = tokenProvider.getUserIdFromJWT(jwt);
+
+                UserDetails userDetails = userDetailsService.loadUserById(userId);
+                UsernamePasswordAuthenticationToken authentication = 
+                    new UsernamePasswordAuthenticationToken(
+                        userDetails, null, userDetails.getAuthorities());
+                authentication.setDetails(
+                    new WebAuthenticationDetailsSource().buildDetails(request));
+
+                SecurityContextHolder.getContext().setAuthentication(authentication);
+            }
+        } catch (Exception ex) {
+            log.error("Could not set user authentication in security context", ex);
+        }
+
+        filterChain.doFilter(request, response);
+    }
+
+    private String getJwtFromRequest(HttpServletRequest request) {
+        String bearerToken = request.getHeader("Authorization");
+        if (StringUtils.hasText(bearerToken) && bearerToken.startsWith("Bearer ")) {
+            return bearerToken.substring(7);
+        }
+        return null;
+    }
+}
+
+// JwtTokenProvider
+@Component
+@Slf4j
+public class JwtTokenProvider {
+
+    @Value("${app.jwt.secret}")
+    private String jwtSecret;
+
+    @Value("${app.jwt.expiration}")
+    private int jwtExpirationInMs;
+
+    public String generateToken(Authentication authentication) {
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+
+        Date expiryDate = new Date(System.currentTimeMillis() + jwtExpirationInMs);
+
+        return Jwts.builder()
+                .setSubject(Long.toString(userPrincipal.getId()))
+                .setIssuedAt(new Date())
+                .setExpiration(expiryDate)
+                .signWith(SignatureAlgorithm.HS512, jwtSecret)
+                .compact();
+    }
+
+    public Long getUserIdFromJWT(String token) {
+        Claims claims = Jwts.parser()
+                .setSigningKey(jwtSecret)
+                .parseClaimsJws(token)
+                .getBody();
+
+        return Long.parseLong(claims.getSubject());
+    }
+
+    public boolean validateToken(String authToken) {
+        try {
+            Jwts.parser().setSigningKey(jwtSecret).parseClaimsJws(authToken);
+            return true;
+        } catch (SignatureException ex) {
+            log.error("Invalid JWT signature");
+        } catch (MalformedJwtException ex) {
+            log.error("Invalid JWT token");
+        } catch (ExpiredJwtException ex) {
+            log.error("Expired JWT token");
+        } catch (UnsupportedJwtException ex) {
+            log.error("Unsupported JWT token");
+        } catch (IllegalArgumentException ex) {
+            log.error("JWT claims string is empty.");
+        }
+        return false;
+    }
+}
+```
+
+### GIMBAP JWT Implementation
+
+```go
+// internal/security/jwt.go
+package security
+
+import (
+    "errors"
+    "fmt"
+    "strings"
+    "time"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/golang-jwt/jwt/v5"
+    "github.com/jhseong7/gimbap"
+)
+
+// JWTClaims represents the JWT token claims
+type JWTClaims struct {
+    UserID int64    `json:"userId"`
+    Email  string   `json:"email"`
+    Roles  []string `json:"roles"`
+    jwt.RegisteredClaims
+}
+
+// JWTTokenProvider handles JWT token generation and validation
+type JWTTokenProvider struct {
+    secret            string
+    expirationSeconds int
+    refreshExpSeconds int
+}
+
+func NewJWTTokenProvider(config *SecurityConfig) *JWTTokenProvider {
+    return &JWTTokenProvider{
+        secret:            config.JWTSecret,
+        expirationSeconds: config.JWTExpiration,
+        refreshExpSeconds: config.RefreshExpiration,
+    }
+}
+
+func (p *JWTTokenProvider) GenerateToken(principal *UserPrincipal) (string, error) {
+    now := time.Now()
+    expiryTime := now.Add(time.Duration(p.expirationSeconds) * time.Second)
+    
+    claims := JWTClaims{
+        UserID: principal.ID,
+        Email:  principal.Email,
+        Roles:  principal.Roles,
+        RegisteredClaims: jwt.RegisteredClaims{
+            Subject:   fmt.Sprintf("%d", principal.ID),
+            IssuedAt:  jwt.NewNumericDate(now),
+            ExpiresAt: jwt.NewNumericDate(expiryTime),
+        },
+    }
+    
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString([]byte(p.secret))
+}
+
+func (p *JWTTokenProvider) GenerateRefreshToken(principal *UserPrincipal) (string, error) {
+    now := time.Now()
+    expiryTime := now.Add(time.Duration(p.refreshExpSeconds) * time.Second)
+    
+    claims := jwt.RegisteredClaims{
+        Subject:   fmt.Sprintf("%d", principal.ID),
+        IssuedAt:  jwt.NewNumericDate(now),
+        ExpiresAt: jwt.NewNumericDate(expiryTime),
+    }
+    
+    token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+    return token.SignedString([]byte(p.secret))
+}
+
+func (p *JWTTokenProvider) ValidateToken(tokenString string) (*JWTClaims, error) {
+    token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
+        if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+            return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+        }
+        return []byte(p.secret), nil
+    })
+    
+    if err != nil {
+        return nil, err
+    }
+    
+    if claims, ok := token.Claims.(*JWTClaims); ok && token.Valid {
+        return claims, nil
+    }
+    
+    return nil, errors.New("invalid token")
+}
+
+func (p *JWTTokenProvider) GetUserIdFromToken(tokenString string) (int64, error) {
+    claims, err := p.ValidateToken(tokenString)
+    if err != nil {
+        return 0, err
+    }
+    return claims.UserID, nil
+}
+
+var JWTTokenProviderProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "JWTTokenProvider",
+    Instantiator: NewJWTTokenProvider,
+})
+
+// JWTAuthenticationFilter is the middleware for JWT authentication
+type JWTAuthenticationFilter struct {
+    tokenProvider *JWTTokenProvider
+    userService   *UserDetailsService
+}
+
+func NewJWTAuthenticationFilter(
+    tokenProvider *JWTTokenProvider,
+    userService *UserDetailsService,
+) *JWTAuthenticationFilter {
+    return &JWTAuthenticationFilter{
+        tokenProvider: tokenProvider,
+        userService:   userService,
+    }
+}
+
+func (f *JWTAuthenticationFilter) Authenticate() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        token := f.extractToken(c)
+        if token == "" {
+            c.Next()
+            return
+        }
+        
+        claims, err := f.tokenProvider.ValidateToken(token)
+        if err != nil {
+            c.Next()
+            return
+        }
+        
+        userPrincipal, err := f.userService.LoadUserById(claims.UserID)
+        if err != nil {
+            c.Next()
+            return
+        }
+        
+        // Store user information in context
+        c.Set("userId", userPrincipal.ID)
+        c.Set("userEmail", userPrincipal.Email)
+        c.Set("userRoles", userPrincipal.Roles)
+        c.Set("userPrincipal", userPrincipal)
+        c.Set("authenticated", true)
+        
+        c.Next()
+    }
+}
+
+func (f *JWTAuthenticationFilter) RequireAuth() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        authenticated, exists := c.Get("authenticated")
+        if !exists || !authenticated.(bool) {
+            c.JSON(401, gin.H{"error": "Authentication required"})
+            c.Abort()
+            return
+        }
+        c.Next()
+    }
+}
+
+func (f *JWTAuthenticationFilter) extractToken(c *gin.Context) string {
+    bearerToken := c.GetHeader("Authorization")
+    if strings.HasPrefix(bearerToken, "Bearer ") {
+        return bearerToken[7:]
+    }
+    return ""
+}
+
+var JWTAuthenticationFilterProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "JWTAuthenticationFilter",
+    Instantiator: NewJWTAuthenticationFilter,
+})
+```
+
+## Authentication Controller
+
+### Spring Authentication Controller
+
+```java
+// src/main/java/com/example/demo/controller/AuthController.java
+package com.example.demo.controller;
+
+import com.example.demo.dto.auth.*;
+import com.example.demo.entity.User;
+import com.example.demo.entity.Role;
+import com.example.demo.exception.AppException;
+import com.example.demo.repository.UserRepository;
+import com.example.demo.repository.RoleRepository;
+import com.example.demo.security.JwtTokenProvider;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.bind.annotation.*;
+
+import javax.validation.Valid;
+import java.util.Collections;
+
+@RestController
+@RequestMapping("/api/auth")
+@RequiredArgsConstructor
+public class AuthController {
+
+    private final AuthenticationManager authenticationManager;
+    private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtTokenProvider tokenProvider;
+
+    @PostMapping("/login")
+    public ResponseEntity<?> authenticateUser(@Valid @RequestBody LoginRequest loginRequest) {
+        Authentication authentication = authenticationManager.authenticate(
+            new UsernamePasswordAuthenticationToken(
+                loginRequest.getEmail(),
+                loginRequest.getPassword()
+            )
+        );
+
+        SecurityContextHolder.getContext().setAuthentication(authentication);
+        String jwt = tokenProvider.generateToken(authentication);
+        
+        return ResponseEntity.ok(new JwtAuthenticationResponse(jwt));
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<?> registerUser(@Valid @RequestBody SignUpRequest signUpRequest) {
+        if (userRepository.existsByEmail(signUpRequest.getEmail())) {
+            return ResponseEntity.badRequest()
+                .body(new ApiResponse(false, "Email is already taken!"));
+        }
+
+        // Create new user
+        User user = new User();
+        user.setName(signUpRequest.getName());
+        user.setEmail(signUpRequest.getEmail());
+        user.setPassword(passwordEncoder.encode(signUpRequest.getPassword()));
+
+        Role userRole = roleRepository.findByName("USER")
+            .orElseThrow(() -> new AppException("User Role not set."));
+
+        user.setRoles(Collections.singleton(userRole));
+
+        User result = userRepository.save(user);
+
+        return ResponseEntity.ok(
+            new ApiResponse(true, "User registered successfully"));
+    }
+
+    @GetMapping("/me")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<?> getCurrentUser(Authentication authentication) {
+        UserPrincipal userPrincipal = (UserPrincipal) authentication.getPrincipal();
+        
+        return ResponseEntity.ok(new UserSummary(
+            userPrincipal.getId(),
+            userPrincipal.getUsername(),
+            userPrincipal.getEmail()
+        ));
+    }
+}
+```
+
+### GIMBAP Authentication Controller
+
+```go
+// internal/controller/auth.go
+package controller
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+    
+    "myapp/internal/dto"
+    "myapp/internal/security"
+    "myapp/internal/service"
+)
+
+type AuthController struct {
+    gimbap.IController
+    authService *service.AuthService
+    jwtFilter   *security.JWTAuthenticationFilter
+}
+
+func NewAuthController(
+    authService *service.AuthService,
+    jwtFilter *security.JWTAuthenticationFilter,
+) *AuthController {
+    return &AuthController{
+        authService: authService,
+        jwtFilter:   jwtFilter,
+    }
+}
+
+func (c *AuthController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "POST",
+            Path:    "/login",
+            Handler: c.Login,
+        },
+        {
+            Method:  "POST",
+            Path:    "/register",
+            Handler: c.Register,
+        },
+        {
+            Method:  "GET",
+            Path:    "/me",
+            Handler: c.GetCurrentUser,
+            Middlewares: []gin.HandlerFunc{
+                c.jwtFilter.Authenticate(),
+                c.jwtFilter.RequireAuth(),
+            },
+        },
+        {
+            Method:  "POST",
+            Path:    "/refresh",
+            Handler: c.RefreshToken,
+        },
+        {
+            Method:  "POST",
+            Path:    "/logout",
+            Handler: c.Logout,
+            Middlewares: []gin.HandlerFunc{
+                c.jwtFilter.Authenticate(),
+                c.jwtFilter.RequireAuth(),
+            },
+        },
+    }
+}
+
+func (c *AuthController) Login(ctx *gin.Context) {
+    var loginRequest dto.LoginRequest
+    if err := ctx.ShouldBindJSON(&loginRequest); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Invalid request",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    response, err := c.authService.Authenticate(loginRequest)
+    if err != nil {
+        ctx.JSON(http.StatusUnauthorized, gin.H{
+            "error": "Invalid credentials",
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, response)
+}
+
+func (c *AuthController) Register(ctx *gin.Context) {
+    var signUpRequest dto.SignUpRequest
+    if err := ctx.ShouldBindJSON(&signUpRequest); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Invalid request",
+            "details": err.Error(),
+        })
+        return
+    }
+    
+    response, err := c.authService.RegisterUser(signUpRequest)
+    if err != nil {
+        statusCode := http.StatusInternalServerError
+        message := "Registration failed"
+        
+        if err.Error() == "email already exists" {
+            statusCode = http.StatusBadRequest
+            message = "Email is already taken"
+        }
+        
+        ctx.JSON(statusCode, gin.H{
+            "error": message,
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusCreated, response)
+}
+
+func (c *AuthController) GetCurrentUser(ctx *gin.Context) {
+    userPrincipal, exists := ctx.Get("userPrincipal")
+    if !exists {
+        ctx.JSON(http.StatusUnauthorized, gin.H{
+            "error": "User not found",
+        })
+        return
+    }
+    
+    user := userPrincipal.(*security.UserPrincipal)
+    
+    ctx.JSON(http.StatusOK, gin.H{
+        "id":    user.ID,
+        "email": user.Email,
+        "roles": user.Roles,
+    })
+}
+
+func (c *AuthController) RefreshToken(ctx *gin.Context) {
+    var refreshRequest dto.RefreshTokenRequest
+    if err := ctx.ShouldBindJSON(&refreshRequest); err != nil {
+        ctx.JSON(http.StatusBadRequest, gin.H{
+            "error": "Invalid request",
+        })
+        return
+    }
+    
+    response, err := c.authService.RefreshToken(refreshRequest.RefreshToken)
+    if err != nil {
+        ctx.JSON(http.StatusUnauthorized, gin.H{
+            "error": "Invalid refresh token",
+        })
+        return
+    }
+    
+    ctx.JSON(http.StatusOK, response)
+}
+
+func (c *AuthController) Logout(ctx *gin.Context) {
+    // In a stateless JWT system, logout is typically handled client-side
+    // But you could implement token blacklisting here if needed
+    
+    ctx.JSON(http.StatusOK, gin.H{
+        "message": "Logged out successfully",
+    })
+}
+
+var AuthControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+    Name:         "AuthController",
+    Instantiator: NewAuthController,
+    RootPath:     "api/auth",
+})
+```
+
+## Authorization and Role-Based Access
+
+### Spring Method Security
+
+```java
+// src/main/java/com/example/demo/controller/AdminController.java
+package com.example.demo.controller;
+
+import org.springframework.security.access.annotation.Secured;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/admin")
+@PreAuthorize("hasRole('ADMIN')")
+public class AdminController {
+
+    @GetMapping("/users")
+    public ResponseEntity<?> getAllUsers() {
+        // Admin only endpoint
+        return ResponseEntity.ok(userService.getAllUsers());
+    }
+
+    @PutMapping("/users/{id}/roles")
+    @PreAuthorize("hasRole('SUPER_ADMIN')")
+    public ResponseEntity<?> updateUserRoles(
+            @PathVariable Long id,
+            @RequestBody Set<String> roles) {
+        // Super admin only
+        return ResponseEntity.ok(userService.updateRoles(id, roles));
+    }
+
+    @DeleteMapping("/users/{id}")
+    @PreAuthorize("hasRole('ADMIN') and #id != authentication.principal.id")
+    public ResponseEntity<?> deleteUser(@PathVariable Long id) {
+        // Admin can't delete themselves
+        userService.deleteUser(id);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/reports")
+    @Secured({"ROLE_ADMIN", "ROLE_MANAGER"})
+    public ResponseEntity<?> getReports() {
+        // Admin or Manager
+        return ResponseEntity.ok(reportService.getAllReports());
+    }
+}
+```
+
+### GIMBAP Role-Based Authorization
+
+```go
+// internal/middleware/authorization.go
+package middleware
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+    
+    "myapp/internal/security"
+)
+
+// RoleGuard checks if user has required roles
+type RoleGuard struct{}
+
+func NewRoleGuard() *RoleGuard {
+    return &RoleGuard{}
+}
+
+func (g *RoleGuard) RequireRoles(roles ...string) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userPrincipal, exists := c.Get("userPrincipal")
+        if !exists {
+            c.JSON(http.StatusUnauthorized, gin.H{
+                "error": "Authentication required",
+            })
+            c.Abort()
+            return
+        }
+        
+        user := userPrincipal.(*security.UserPrincipal)
+        
+        hasRole := false
+        for _, requiredRole := range roles {
+            if user.HasRole(requiredRole) {
+                hasRole = true
+                break
+            }
+        }
+        
+        if !hasRole {
+            c.JSON(http.StatusForbidden, gin.H{
+                "error": "Insufficient permissions",
+            })
+            c.Abort()
+            return
+        }
+        
+        c.Next()
+    }
+}
+
+func (g *RoleGuard) RequireAnyRole(roles ...string) gin.HandlerFunc {
+    return g.RequireRoles(roles...)
+}
+
+func (g *RoleGuard) RequireAllRoles(roles ...string) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userPrincipal, exists := c.Get("userPrincipal")
+        if !exists {
+            c.JSON(http.StatusUnauthorized, gin.H{
+                "error": "Authentication required",
+            })
+            c.Abort()
+            return
+        }
+        
+        user := userPrincipal.(*security.UserPrincipal)
+        
+        for _, requiredRole := range roles {
+            if !user.HasRole(requiredRole) {
+                c.JSON(http.StatusForbidden, gin.H{
+                    "error": "Insufficient permissions",
+                })
+                c.Abort()
+                return
+            }
+        }
+        
+        c.Next()
+    }
+}
+
+// Custom authorization checks
+func (g *RoleGuard) RequireOwnership(getResourceOwnerID func(*gin.Context) int64) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        userPrincipal, exists := c.Get("userPrincipal")
+        if !exists {
+            c.JSON(http.StatusUnauthorized, gin.H{
+                "error": "Authentication required",
+            })
+            c.Abort()
+            return
+        }
+        
+        user := userPrincipal.(*security.UserPrincipal)
+        resourceOwnerID := getResourceOwnerID(c)
+        
+        if user.ID != resourceOwnerID && !user.HasRole("ADMIN") {
+            c.JSON(http.StatusForbidden, gin.H{
+                "error": "Access denied",
+            })
+            c.Abort()
+            return
+        }
+        
+        c.Next()
+    }
+}
+
+var RoleGuardProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "RoleGuard",
+    Instantiator: NewRoleGuard,
+})
+
+// AdminController with authorization
+type AdminController struct {
+    gimbap.IController
+    userService *service.UserService
+    jwtFilter   *security.JWTAuthenticationFilter
+    roleGuard   *RoleGuard
+}
+
+func NewAdminController(
+    userService *service.UserService,
+    jwtFilter *security.JWTAuthenticationFilter,
+    roleGuard *RoleGuard,
+) *AdminController {
+    return &AdminController{
+        userService: userService,
+        jwtFilter:   jwtFilter,
+        roleGuard:   roleGuard,
+    }
+}
+
+func (c *AdminController) GetRouteSpecs() []gimbap.RouteSpec {
+    // All routes require authentication and ADMIN role
+    adminMiddleware := []gin.HandlerFunc{
+        c.jwtFilter.Authenticate(),
+        c.jwtFilter.RequireAuth(),
+        c.roleGuard.RequireRoles("ADMIN"),
+    }
+    
+    return []gimbap.RouteSpec{
+        {
+            Method:      "GET",
+            Path:        "/users",
+            Handler:     c.GetAllUsers,
+            Middlewares: adminMiddleware,
+        },
+        {
+            Method:  "PUT",
+            Path:    "/users/:id/roles",
+            Handler: c.UpdateUserRoles,
+            Middlewares: append(adminMiddleware,
+                c.roleGuard.RequireRoles("SUPER_ADMIN")),
+        },
+        {
+            Method:      "DELETE",
+            Path:        "/users/:id",
+            Handler:     c.DeleteUser,
+            Middlewares: append(adminMiddleware,
+                c.preventSelfDeletion()),
+        },
+        {
+            Method:  "GET",
+            Path:    "/reports",
+            Handler: c.GetReports,
+            Middlewares: []gin.HandlerFunc{
+                c.jwtFilter.Authenticate(),
+                c.jwtFilter.RequireAuth(),
+                c.roleGuard.RequireAnyRole("ADMIN", "MANAGER"),
+            },
+        },
+    }
+}
+
+func (c *AdminController) preventSelfDeletion() gin.HandlerFunc {
+    return func(ctx *gin.Context) {
+        userPrincipal, _ := ctx.Get("userPrincipal")
+        user := userPrincipal.(*security.UserPrincipal)
+        
+        targetID, err := strconv.ParseInt(ctx.Param("id"), 10, 64)
+        if err != nil {
+            ctx.JSON(http.StatusBadRequest, gin.H{
+                "error": "Invalid user ID",
+            })
+            ctx.Abort()
+            return
+        }
+        
+        if user.ID == targetID {
+            ctx.JSON(http.StatusForbidden, gin.H{
+                "error": "Cannot delete yourself",
+            })
+            ctx.Abort()
+            return
+        }
+        
+        ctx.Next()
+    }
+}
+```
+
+## CORS Configuration
+
+### Spring CORS
+
+```java
+// Already shown in SecurityConfig above
+// Additional CORS configuration
+@Configuration
+public class WebMvcConfig implements WebMvcConfigurer {
+
+    @Override
+    public void addCorsMappings(CorsRegistry registry) {
+        registry.addMapping("/api/**")
+            .allowedOrigins("http://localhost:3000", "https://example.com")
+            .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+            .allowedHeaders("*")
+            .allowCredentials(true)
+            .maxAge(3600);
+    }
+}
+```
+
+### GIMBAP CORS
+
+```go
+// internal/middleware/cors.go
+package middleware
+
+import (
+    "net/http"
+    "strings"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+type CORSConfig struct {
+    AllowOrigins     []string
+    AllowMethods     []string
+    AllowHeaders     []string
+    ExposeHeaders    []string
+    AllowCredentials bool
+    MaxAge           int
+}
+
+type CORSMiddleware struct {
+    config *CORSConfig
+}
+
+func NewCORSMiddleware(config *SecurityConfig) *CORSMiddleware {
+    return &CORSMiddleware{
+        config: &CORSConfig{
+            AllowOrigins:     config.AllowedOrigins,
+            AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+            AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
+            ExposeHeaders:    []string{"Content-Length"},
+            AllowCredentials: true,
+            MaxAge:          3600,
+        },
+    }
+}
+
+func (m *CORSMiddleware) Handle() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        origin := c.Request.Header.Get("Origin")
+        
+        // Check if origin is allowed
+        if m.isOriginAllowed(origin) {
+            c.Header("Access-Control-Allow-Origin", origin)
+            c.Header("Access-Control-Allow-Credentials", "true")
+            c.Header("Access-Control-Allow-Methods", strings.Join(m.config.AllowMethods, ", "))
+            c.Header("Access-Control-Allow-Headers", strings.Join(m.config.AllowHeaders, ", "))
+            c.Header("Access-Control-Expose-Headers", strings.Join(m.config.ExposeHeaders, ", "))
+            c.Header("Access-Control-Max-Age", fmt.Sprintf("%d", m.config.MaxAge))
+        }
+        
+        // Handle preflight requests
+        if c.Request.Method == "OPTIONS" {
+            c.AbortWithStatus(http.StatusNoContent)
+            return
+        }
+        
+        c.Next()
+    }
+}
+
+func (m *CORSMiddleware) isOriginAllowed(origin string) bool {
+    for _, allowed := range m.config.AllowOrigins {
+        if allowed == "*" || allowed == origin {
+            return true
+        }
+    }
+    return false
+}
+
+var CORSMiddlewareProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "CORSMiddleware",
+    Instantiator: NewCORSMiddleware,
+})
+```
+
+## Authentication Entry Point
+
+### Spring Authentication Entry Point
+
+```java
+// src/main/java/com/example/demo/security/JwtAuthenticationEntryPoint.java
+package com.example.demo.security;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.stereotype.Component;
+
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+@Component
+@Slf4j
+public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
+
+    @Override
+    public void commence(HttpServletRequest httpServletRequest,
+                        HttpServletResponse httpServletResponse,
+                        AuthenticationException e) throws IOException, ServletException {
+        log.error("Responding with unauthorized error. Message - {}", e.getMessage());
+        httpServletResponse.sendError(HttpServletResponse.SC_UNAUTHORIZED, 
+                                     "Sorry, You're not authorized to access this resource.");
+    }
+}
+```
+
+### GIMBAP Authentication Entry Point
+
+```go
+// internal/middleware/auth_entry_point.go
+package middleware
+
+import (
+    "net/http"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+)
+
+type AuthenticationEntryPoint struct {
+    publicPaths []string
+}
+
+func NewAuthenticationEntryPoint(config *RouteSecurityConfig) *AuthenticationEntryPoint {
+    return &AuthenticationEntryPoint{
+        publicPaths: config.PublicPaths,
+    }
+}
+
+func (e *AuthenticationEntryPoint) Handle() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        // Skip authentication for public paths
+        if e.isPublicPath(c.Request.URL.Path) {
+            c.Next()
+            return
+        }
+        
+        // Check if request requires authentication
+        authenticated, exists := c.Get("authenticated")
+        if !exists || !authenticated.(bool) {
+            // Check if this is a protected route
+            if e.isProtectedPath(c.Request.URL.Path) {
+                c.JSON(http.StatusUnauthorized, gin.H{
+                    "error": "You're not authorized to access this resource",
+                })
+                c.Abort()
+                return
+            }
+        }
+        
+        c.Next()
+    }
+}
+
+func (e *AuthenticationEntryPoint) isPublicPath(path string) bool {
+    for _, publicPath := range e.publicPaths {
+        if matchPath(publicPath, path) {
+            return true
+        }
+    }
+    return false
+}
+
+func (e *AuthenticationEntryPoint) isProtectedPath(path string) bool {
+    // By default, all /api/* paths are protected unless explicitly public
+    return strings.HasPrefix(path, "/api/")
+}
+
+func matchPath(pattern, path string) bool {
+    // Simple path matching with wildcard support
+    if strings.HasSuffix(pattern, "*") {
+        prefix := pattern[:len(pattern)-1]
+        return strings.HasPrefix(path, prefix)
+    }
+    return pattern == path
+}
+
+var AuthenticationEntryPointProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "AuthenticationEntryPoint",
+    Instantiator: NewAuthenticationEntryPoint,
+})
+```
+
+## Security Module Configuration
+
+```go
+// internal/security/module.go
+package security
+
+import (
+    "github.com/jhseong7/gimbap"
+    "myapp/internal/middleware"
+)
+
+var SecurityModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "SecurityModule",
+    Providers: []*gimbap.Provider{
+        PasswordEncoderProvider,
+        UserDetailsServiceProvider,
+        JWTTokenProviderProvider,
+        JWTAuthenticationFilterProvider,
+        middleware.RoleGuardProvider,
+        middleware.CORSMiddlewareProvider,
+        middleware.AuthenticationEntryPointProvider,
+    },
+})
+```
+
+## Testing Authentication
+
+```bash
+# Register a new user
+curl -X POST http://localhost:8080/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "email": "john@example.com",
+    "password": "SecurePassword123!"
+  }'
+
+# Login
+curl -X POST http://localhost:8080/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "john@example.com",
+    "password": "SecurePassword123!"
+  }'
+
+# Access protected endpoint
+curl http://localhost:8080/api/auth/me \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+
+# Access admin endpoint
+curl http://localhost:8080/api/admin/users \
+  -H "Authorization: Bearer YOUR_ADMIN_JWT_TOKEN"
+```
+
+## Best Practices
+
+1. **Security Headers**
+   - Always use HTTPS in production
+   - Implement rate limiting
+   - Add security headers (HSTS, CSP, etc.)
+
+2. **Token Management**
+   - Use short-lived access tokens
+   - Implement refresh token rotation
+   - Consider token blacklisting for logout
+
+3. **Password Security**
+   - Use strong hashing (bcrypt with appropriate cost)
+   - Implement password policies
+   - Add account lockout mechanisms
+
+4. **Authorization**
+   - Follow principle of least privilege
+   - Use role-based access control
+   - Implement resource-based authorization where needed
+
+5. **Error Handling**
+   - Don't leak sensitive information
+   - Use consistent error messages
+   - Log security events
+
+## Next Steps
+
+- [Async Processing and Scheduling →](./04-async-scheduling)
+- [Advanced Patterns →](./05-advanced)
+- [Testing →](./06-testing)

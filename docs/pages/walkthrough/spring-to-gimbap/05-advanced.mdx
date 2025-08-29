@@ -1,0 +1,1227 @@
+# Step 5: Advanced Patterns
+
+This guide covers advanced Spring Boot patterns and their GIMBAP equivalents, including AOP, caching, monitoring, and integration patterns.
+
+## Aspect-Oriented Programming (AOP)
+
+### Spring Boot AOP
+```java
+// Spring Boot - Logging Aspect
+@Aspect
+@Component
+public class LoggingAspect {
+    private static final Logger logger = LoggerFactory.getLogger(LoggingAspect.class);
+    
+    @Pointcut("@annotation(Loggable)")
+    public void loggableMethod() {}
+    
+    @Around("loggableMethod()")
+    public Object logExecution(ProceedingJoinPoint joinPoint) throws Throwable {
+        long start = System.currentTimeMillis();
+        
+        logger.info("Executing: {}", joinPoint.getSignature().getName());
+        
+        try {
+            Object result = joinPoint.proceed();
+            long executionTime = System.currentTimeMillis() - start;
+            logger.info("Executed in {} ms", executionTime);
+            return result;
+        } catch (Exception e) {
+            logger.error("Exception in {}: {}", 
+                joinPoint.getSignature().getName(), e.getMessage());
+            throw e;
+        }
+    }
+    
+    @Before("@annotation(validated)")
+    public void validateInput(Validated validated) {
+        // Validation logic
+    }
+}
+
+// Custom Annotation
+@Target(ElementType.METHOD)
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Loggable {
+    String value() default "";
+}
+
+// Usage
+@Service
+public class UserService {
+    @Loggable
+    @Transactional
+    public User createUser(UserDto dto) {
+        // Method implementation
+    }
+}
+```
+
+### GIMBAP AOP Pattern
+```go
+// GIMBAP - Middleware-based AOP
+package middleware
+
+import (
+    "time"
+    "github.com/gin-gonic/gin"
+    "github.com/sirupsen/logrus"
+)
+
+// Logging middleware (equivalent to @Around)
+func LoggingMiddleware(logger *logrus.Logger) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        start := time.Now()
+        path := c.Request.URL.Path
+        method := c.Request.Method
+        
+        logger.WithFields(logrus.Fields{
+            "method": method,
+            "path":   path,
+        }).Info("Request started")
+        
+        // Process request
+        c.Next()
+        
+        // After request
+        latency := time.Since(start)
+        status := c.Writer.Status()
+        
+        logger.WithFields(logrus.Fields{
+            "method":  method,
+            "path":    path,
+            "status":  status,
+            "latency": latency,
+        }).Info("Request completed")
+    }
+}
+
+// Method interceptor pattern
+type MethodInterceptor struct {
+    logger *logrus.Logger
+}
+
+func NewMethodInterceptor(logger *logrus.Logger) *MethodInterceptor {
+    return &MethodInterceptor{logger: logger}
+}
+
+func (mi *MethodInterceptor) Wrap(name string, fn func() error) func() error {
+    return func() error {
+        start := time.Now()
+        mi.logger.Infof("Executing: %s", name)
+        
+        err := fn()
+        
+        duration := time.Since(start)
+        if err != nil {
+            mi.logger.Errorf("Failed %s after %v: %v", name, duration, err)
+            return err
+        }
+        
+        mi.logger.Infof("Completed %s in %v", name, duration)
+        return nil
+    }
+}
+
+// Decorator pattern for services
+type UserServiceDecorator struct {
+    service     *UserService
+    interceptor *MethodInterceptor
+}
+
+func (d *UserServiceDecorator) CreateUser(ctx context.Context, dto UserDto) (*User, error) {
+    var user *User
+    var err error
+    
+    wrappedFn := d.interceptor.Wrap("CreateUser", func() error {
+        user, err = d.service.CreateUser(ctx, dto)
+        return err
+    })
+    
+    if err := wrappedFn(); err != nil {
+        return nil, err
+    }
+    return user, nil
+}
+
+// Module with AOP
+func NewAdvancedModule() *gimbap.Module {
+    return &gimbap.Module{
+        Name: "AdvancedModule",
+        Providers: []interface{}{
+            // Wrap services with decorators
+            func(logger *logrus.Logger, userService *UserService) *UserServiceDecorator {
+                interceptor := NewMethodInterceptor(logger)
+                return &UserServiceDecorator{
+                    service:     userService,
+                    interceptor: interceptor,
+                }
+            },
+        },
+    }
+}
+```
+
+## Caching
+
+### Spring Boot Cache
+```java
+// Spring Boot - Cache Configuration
+@Configuration
+@EnableCaching
+public class CacheConfig {
+    @Bean
+    public CacheManager cacheManager() {
+        CaffeineCacheManager cacheManager = new CaffeineCacheManager();
+        cacheManager.setCaffeine(Caffeine.newBuilder()
+            .maximumSize(100)
+            .expireAfterWrite(10, TimeUnit.MINUTES));
+        return cacheManager;
+    }
+}
+
+@Service
+public class ProductService {
+    @Cacheable(value = "products", key = "#id")
+    public Product getProduct(Long id) {
+        // Expensive database operation
+        return productRepository.findById(id);
+    }
+    
+    @CachePut(value = "products", key = "#product.id")
+    public Product updateProduct(Product product) {
+        return productRepository.save(product);
+    }
+    
+    @CacheEvict(value = "products", key = "#id")
+    public void deleteProduct(Long id) {
+        productRepository.deleteById(id);
+    }
+    
+    @CacheEvict(value = "products", allEntries = true)
+    public void clearCache() {
+        // Clear all product cache
+    }
+}
+```
+
+### GIMBAP Cache Implementation
+```go
+// GIMBAP - Cache Implementation
+package cache
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "time"
+    "github.com/go-redis/redis/v8"
+    "github.com/patrickmn/go-cache"
+)
+
+// Cache interface
+type Cache interface {
+    Get(ctx context.Context, key string, dest interface{}) error
+    Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    Delete(ctx context.Context, key string) error
+    Clear(ctx context.Context, pattern string) error
+}
+
+// In-memory cache implementation
+type InMemoryCache struct {
+    cache *cache.Cache
+}
+
+func NewInMemoryCache(defaultTTL, cleanupInterval time.Duration) *InMemoryCache {
+    return &InMemoryCache{
+        cache: cache.New(defaultTTL, cleanupInterval),
+    }
+}
+
+func (c *InMemoryCache) Get(ctx context.Context, key string, dest interface{}) error {
+    if val, found := c.cache.Get(key); found {
+        // Type assertion or JSON marshaling
+        if data, ok := val.([]byte); ok {
+            return json.Unmarshal(data, dest)
+        }
+        return fmt.Errorf("cache value type mismatch")
+    }
+    return fmt.Errorf("key not found")
+}
+
+func (c *InMemoryCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+    data, err := json.Marshal(value)
+    if err != nil {
+        return err
+    }
+    c.cache.Set(key, data, ttl)
+    return nil
+}
+
+// Redis cache implementation
+type RedisCache struct {
+    client *redis.Client
+}
+
+func NewRedisCache(client *redis.Client) *RedisCache {
+    return &RedisCache{client: client}
+}
+
+func (c *RedisCache) Get(ctx context.Context, key string, dest interface{}) error {
+    val, err := c.client.Get(ctx, key).Result()
+    if err != nil {
+        return err
+    }
+    return json.Unmarshal([]byte(val), dest)
+}
+
+func (c *RedisCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+    data, err := json.Marshal(value)
+    if err != nil {
+        return err
+    }
+    return c.client.Set(ctx, key, data, ttl).Err()
+}
+
+// Cacheable decorator
+type CacheableService struct {
+    cache   Cache
+    service ProductService
+}
+
+func NewCacheableService(cache Cache, service ProductService) *CacheableService {
+    return &CacheableService{
+        cache:   cache,
+        service: service,
+    }
+}
+
+func (s *CacheableService) GetProduct(ctx context.Context, id int64) (*Product, error) {
+    key := fmt.Sprintf("product:%d", id)
+    
+    // Try cache first
+    var product Product
+    if err := s.cache.Get(ctx, key, &product); err == nil {
+        return &product, nil
+    }
+    
+    // Cache miss - fetch from service
+    p, err := s.service.GetProduct(ctx, id)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Store in cache
+    s.cache.Set(ctx, key, p, 10*time.Minute)
+    return p, nil
+}
+
+func (s *CacheableService) UpdateProduct(ctx context.Context, product *Product) (*Product, error) {
+    p, err := s.service.UpdateProduct(ctx, product)
+    if err != nil {
+        return nil, err
+    }
+    
+    // Update cache
+    key := fmt.Sprintf("product:%d", product.ID)
+    s.cache.Set(ctx, key, p, 10*time.Minute)
+    return p, nil
+}
+
+func (s *CacheableService) DeleteProduct(ctx context.Context, id int64) error {
+    if err := s.service.DeleteProduct(ctx, id); err != nil {
+        return err
+    }
+    
+    // Evict from cache
+    key := fmt.Sprintf("product:%d", id)
+    return s.cache.Delete(ctx, key)
+}
+
+// Cache module
+func NewCacheModule() *gimbap.Module {
+    return &gimbap.Module{
+        Name: "CacheModule",
+        Providers: []interface{}{
+            NewInMemoryCache,
+            func(cache *InMemoryCache) Cache {
+                return cache
+            },
+            NewCacheableService,
+        },
+    }
+}
+```
+
+## Monitoring and Health Checks
+
+### Spring Boot Actuator
+```java
+// Spring Boot - Actuator Configuration
+@Component
+public class CustomHealthIndicator implements HealthIndicator {
+    @Autowired
+    private DatabaseService databaseService;
+    
+    @Override
+    public Health health() {
+        try {
+            databaseService.checkConnection();
+            return Health.up()
+                .withDetail("database", "Connected")
+                .withDetail("connections", databaseService.getActiveConnections())
+                .build();
+        } catch (Exception e) {
+            return Health.down()
+                .withDetail("error", e.getMessage())
+                .build();
+        }
+    }
+}
+
+@Component
+@Endpoint(id = "features")
+public class FeaturesEndpoint {
+    @ReadOperation
+    public Map<String, Feature> features() {
+        Map<String, Feature> features = new HashMap<>();
+        features.put("auth", new Feature(true));
+        features.put("cache", new Feature(false));
+        return features;
+    }
+    
+    @WriteOperation
+    public void configureFeature(@Selector String name, Feature feature) {
+        // Configure feature
+    }
+}
+
+// Metrics
+@RestController
+public class MetricsController {
+    private final MeterRegistry meterRegistry;
+    
+    @GetMapping("/api/process")
+    @Timed(value = "process.time", description = "Time taken to process")
+    public Result process() {
+        Counter.builder("process.count")
+            .description("Number of processes")
+            .register(meterRegistry)
+            .increment();
+        
+        return processService.execute();
+    }
+}
+```
+
+### GIMBAP Monitoring Implementation
+```go
+// GIMBAP - Health and Monitoring
+package monitoring
+
+import (
+    "context"
+    "net/http"
+    "sync"
+    "time"
+    
+    "github.com/gin-gonic/gin"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+// Health check interface
+type HealthChecker interface {
+    Name() string
+    Check(ctx context.Context) HealthStatus
+}
+
+type HealthStatus struct {
+    Status  string                 `json:"status"`
+    Details map[string]interface{} `json:"details,omitempty"`
+}
+
+// Database health checker
+type DatabaseHealthChecker struct {
+    db *sql.DB
+}
+
+func (d *DatabaseHealthChecker) Name() string {
+    return "database"
+}
+
+func (d *DatabaseHealthChecker) Check(ctx context.Context) HealthStatus {
+    ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+    defer cancel()
+    
+    if err := d.db.PingContext(ctx); err != nil {
+        return HealthStatus{
+            Status: "DOWN",
+            Details: map[string]interface{}{
+                "error": err.Error(),
+            },
+        }
+    }
+    
+    stats := d.db.Stats()
+    return HealthStatus{
+        Status: "UP",
+        Details: map[string]interface{}{
+            "openConnections": stats.OpenConnections,
+            "inUse":          stats.InUse,
+            "idle":           stats.Idle,
+        },
+    }
+}
+
+// Health service
+type HealthService struct {
+    checkers []HealthChecker
+    mu       sync.RWMutex
+}
+
+func NewHealthService() *HealthService {
+    return &HealthService{
+        checkers: make([]HealthChecker, 0),
+    }
+}
+
+func (s *HealthService) RegisterChecker(checker HealthChecker) {
+    s.mu.Lock()
+    defer s.mu.Unlock()
+    s.checkers = append(s.checkers, checker)
+}
+
+func (s *HealthService) CheckHealth(ctx context.Context) map[string]interface{} {
+    s.mu.RLock()
+    defer s.mu.RUnlock()
+    
+    overall := "UP"
+    components := make(map[string]HealthStatus)
+    
+    for _, checker := range s.checkers {
+        status := checker.Check(ctx)
+        components[checker.Name()] = status
+        if status.Status != "UP" {
+            overall = "DOWN"
+        }
+    }
+    
+    return map[string]interface{}{
+        "status":     overall,
+        "components": components,
+        "timestamp":  time.Now().Unix(),
+    }
+}
+
+// Metrics middleware
+type MetricsMiddleware struct {
+    requestCount    *prometheus.CounterVec
+    requestDuration *prometheus.HistogramVec
+}
+
+func NewMetricsMiddleware() *MetricsMiddleware {
+    requestCount := prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "http_requests_total",
+            Help: "Total number of HTTP requests",
+        },
+        []string{"method", "endpoint", "status"},
+    )
+    
+    requestDuration := prometheus.NewHistogramVec(
+        prometheus.HistogramOpts{
+            Name:    "http_request_duration_seconds",
+            Help:    "HTTP request duration in seconds",
+            Buckets: prometheus.DefBuckets,
+        },
+        []string{"method", "endpoint"},
+    )
+    
+    prometheus.MustRegister(requestCount, requestDuration)
+    
+    return &MetricsMiddleware{
+        requestCount:    requestCount,
+        requestDuration: requestDuration,
+    }
+}
+
+func (m *MetricsMiddleware) Middleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        start := time.Now()
+        
+        c.Next()
+        
+        duration := time.Since(start).Seconds()
+        status := fmt.Sprintf("%d", c.Writer.Status())
+        
+        m.requestCount.WithLabelValues(
+            c.Request.Method,
+            c.FullPath(),
+            status,
+        ).Inc()
+        
+        m.requestDuration.WithLabelValues(
+            c.Request.Method,
+            c.FullPath(),
+        ).Observe(duration)
+    }
+}
+
+// Monitoring controller
+type MonitoringController struct {
+    health  *HealthService
+    metrics *MetricsMiddleware
+}
+
+func NewMonitoringController(health *HealthService, metrics *MetricsMiddleware) *MonitoringController {
+    return &MonitoringController{
+        health:  health,
+        metrics: metrics,
+    }
+}
+
+func (c *MonitoringController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/health",
+            Handler: c.HealthCheck,
+        },
+        {
+            Method:  "GET",
+            Path:    "/health/live",
+            Handler: c.LivenessCheck,
+        },
+        {
+            Method:  "GET",
+            Path:    "/health/ready",
+            Handler: c.ReadinessCheck,
+        },
+        {
+            Method:  "GET",
+            Path:    "/metrics",
+            Handler: gin.WrapH(promhttp.Handler()),
+        },
+    }
+}
+
+func (c *MonitoringController) HealthCheck(ctx *gin.Context) {
+    health := c.health.CheckHealth(ctx.Request.Context())
+    
+    status := http.StatusOK
+    if health["status"] != "UP" {
+        status = http.StatusServiceUnavailable
+    }
+    
+    ctx.JSON(status, health)
+}
+
+func (c *MonitoringController) LivenessCheck(ctx *gin.Context) {
+    ctx.JSON(http.StatusOK, gin.H{"status": "UP"})
+}
+
+func (c *MonitoringController) ReadinessCheck(ctx *gin.Context) {
+    // Check if service is ready to handle requests
+    health := c.health.CheckHealth(ctx.Request.Context())
+    
+    if health["status"] == "UP" {
+        ctx.JSON(http.StatusOK, gin.H{"status": "READY"})
+    } else {
+        ctx.JSON(http.StatusServiceUnavailable, gin.H{"status": "NOT_READY"})
+    }
+}
+
+// Monitoring module
+func NewMonitoringModule() *gimbap.Module {
+    return &gimbap.Module{
+        Name: "MonitoringModule",
+        Providers: []interface{}{
+            NewHealthService,
+            NewMetricsMiddleware,
+            NewMonitoringController,
+            func(health *HealthService, db *sql.DB) *HealthService {
+                health.RegisterChecker(&DatabaseHealthChecker{db: db})
+                return health
+            },
+        },
+    }
+}
+```
+
+## WebSocket Support
+
+### Spring Boot WebSocket
+```java
+// Spring Boot - WebSocket Configuration
+@Configuration
+@EnableWebSocket
+public class WebSocketConfig implements WebSocketConfigurer {
+    @Override
+    public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
+        registry.addHandler(new ChatWebSocketHandler(), "/ws/chat")
+            .setAllowedOrigins("*");
+    }
+}
+
+@Component
+public class ChatWebSocketHandler extends TextWebSocketHandler {
+    private final Set<WebSocketSession> sessions = new CopyOnWriteArraySet<>();
+    
+    @Override
+    public void afterConnectionEstablished(WebSocketSession session) {
+        sessions.add(session);
+        broadcast("User joined: " + session.getId());
+    }
+    
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) {
+        broadcast(session.getId() + ": " + message.getPayload());
+    }
+    
+    @Override
+    public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+        sessions.remove(session);
+        broadcast("User left: " + session.getId());
+    }
+    
+    private void broadcast(String message) {
+        sessions.forEach(session -> {
+            try {
+                session.sendMessage(new TextMessage(message));
+            } catch (IOException e) {
+                // Handle error
+            }
+        });
+    }
+}
+```
+
+### GIMBAP WebSocket Implementation
+```go
+// GIMBAP - WebSocket Implementation
+package websocket
+
+import (
+    "sync"
+    "github.com/gin-gonic/gin"
+    "github.com/gorilla/websocket"
+    "github.com/sirupsen/logrus"
+)
+
+var upgrader = websocket.Upgrader{
+    CheckOrigin: func(r *http.Request) bool {
+        return true // Configure origin checking
+    },
+}
+
+// WebSocket hub
+type Hub struct {
+    clients    map[*Client]bool
+    broadcast  chan []byte
+    register   chan *Client
+    unregister chan *Client
+    mu         sync.RWMutex
+}
+
+func NewHub() *Hub {
+    return &Hub{
+        clients:    make(map[*Client]bool),
+        broadcast:  make(chan []byte),
+        register:   make(chan *Client),
+        unregister: make(chan *Client),
+    }
+}
+
+func (h *Hub) Run() {
+    for {
+        select {
+        case client := <-h.register:
+            h.mu.Lock()
+            h.clients[client] = true
+            h.mu.Unlock()
+            h.broadcastMessage([]byte("User joined: " + client.id))
+            
+        case client := <-h.unregister:
+            h.mu.Lock()
+            if _, ok := h.clients[client]; ok {
+                delete(h.clients, client)
+                close(client.send)
+                h.mu.Unlock()
+                h.broadcastMessage([]byte("User left: " + client.id))
+            } else {
+                h.mu.Unlock()
+            }
+            
+        case message := <-h.broadcast:
+            h.broadcastMessage(message)
+        }
+    }
+}
+
+func (h *Hub) broadcastMessage(message []byte) {
+    h.mu.RLock()
+    defer h.mu.RUnlock()
+    
+    for client := range h.clients {
+        select {
+        case client.send <- message:
+        default:
+            close(client.send)
+            delete(h.clients, client)
+        }
+    }
+}
+
+// WebSocket client
+type Client struct {
+    hub  *Hub
+    conn *websocket.Conn
+    send chan []byte
+    id   string
+}
+
+func (c *Client) readPump() {
+    defer func() {
+        c.hub.unregister <- c
+        c.conn.Close()
+    }()
+    
+    for {
+        _, message, err := c.conn.ReadMessage()
+        if err != nil {
+            break
+        }
+        
+        // Broadcast message with sender ID
+        fullMessage := []byte(c.id + ": " + string(message))
+        c.hub.broadcast <- fullMessage
+    }
+}
+
+func (c *Client) writePump() {
+    defer c.conn.Close()
+    
+    for {
+        select {
+        case message, ok := <-c.send:
+            if !ok {
+                c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+                return
+            }
+            
+            c.conn.WriteMessage(websocket.TextMessage, message)
+        }
+    }
+}
+
+// WebSocket controller
+type WebSocketController struct {
+    hub    *Hub
+    logger *logrus.Logger
+}
+
+func NewWebSocketController(hub *Hub, logger *logrus.Logger) *WebSocketController {
+    // Start hub in background
+    go hub.Run()
+    
+    return &WebSocketController{
+        hub:    hub,
+        logger: logger,
+    }
+}
+
+func (c *WebSocketController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {
+            Method:  "GET",
+            Path:    "/ws/chat",
+            Handler: c.HandleWebSocket,
+        },
+    }
+}
+
+func (c *WebSocketController) HandleWebSocket(ctx *gin.Context) {
+    conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
+    if err != nil {
+        c.logger.Errorf("WebSocket upgrade failed: %v", err)
+        return
+    }
+    
+    client := &Client{
+        hub:  c.hub,
+        conn: conn,
+        send: make(chan []byte, 256),
+        id:   ctx.GetHeader("X-Client-Id"), // Or generate ID
+    }
+    
+    c.hub.register <- client
+    
+    // Start client pumps
+    go client.writePump()
+    go client.readPump()
+}
+
+// WebSocket module
+func NewWebSocketModule() *gimbap.Module {
+    return &gimbap.Module{
+        Name: "WebSocketModule",
+        Providers: []interface{}{
+            NewHub,
+            NewWebSocketController,
+        },
+    }
+}
+```
+
+## Integration Patterns
+
+### Spring Boot Integration
+```java
+// Spring Boot - Integration with External Services
+@Component
+public class ExternalServiceClient {
+    private final RestTemplate restTemplate;
+    private final CircuitBreaker circuitBreaker;
+    
+    @Value("${external.service.url}")
+    private String serviceUrl;
+    
+    @Retryable(value = {RestClientException.class}, 
+               maxAttempts = 3, 
+               backoff = @Backoff(delay = 1000))
+    public ExternalData fetchData(String id) {
+        return circuitBreaker.run(
+            () -> restTemplate.getForObject(
+                serviceUrl + "/data/" + id, 
+                ExternalData.class
+            ),
+            throwable -> getDefaultData(id)
+        );
+    }
+    
+    @Recover
+    public ExternalData recover(RestClientException e, String id) {
+        logger.error("Failed to fetch data for id: {}", id);
+        return getDefaultData(id);
+    }
+}
+
+// Message Queue Integration
+@Component
+public class MessageProducer {
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
+    
+    public void sendMessage(String exchange, String routingKey, Object message) {
+        rabbitTemplate.convertAndSend(exchange, routingKey, message);
+    }
+}
+
+@Component
+public class MessageConsumer {
+    @RabbitListener(queues = "${rabbitmq.queue.name}")
+    public void receiveMessage(Message message) {
+        // Process message
+    }
+}
+```
+
+### GIMBAP Integration Implementation
+```go
+// GIMBAP - Integration Patterns
+package integration
+
+import (
+    "context"
+    "encoding/json"
+    "fmt"
+    "net/http"
+    "time"
+    
+    "github.com/sony/gobreaker"
+    "github.com/avast/retry-go"
+    "github.com/streadway/amqp"
+)
+
+// HTTP client with circuit breaker and retry
+type ResilientHTTPClient struct {
+    client         *http.Client
+    circuitBreaker *gobreaker.CircuitBreaker
+    serviceURL     string
+}
+
+func NewResilientHTTPClient(serviceURL string) *ResilientHTTPClient {
+    settings := gobreaker.Settings{
+        Name:        "HTTP",
+        MaxRequests: 3,
+        Interval:    10 * time.Second,
+        Timeout:     30 * time.Second,
+        ReadyToTrip: func(counts gobreaker.Counts) bool {
+            failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+            return counts.Requests >= 3 && failureRatio >= 0.6
+        },
+    }
+    
+    return &ResilientHTTPClient{
+        client:         &http.Client{Timeout: 10 * time.Second},
+        circuitBreaker: gobreaker.NewCircuitBreaker(settings),
+        serviceURL:     serviceURL,
+    }
+}
+
+func (c *ResilientHTTPClient) FetchData(ctx context.Context, id string) (*ExternalData, error) {
+    var result *ExternalData
+    
+    operation := func() error {
+        body, err := c.circuitBreaker.Execute(func() (interface{}, error) {
+            url := fmt.Sprintf("%s/data/%s", c.serviceURL, id)
+            req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+            if err != nil {
+                return nil, err
+            }
+            
+            resp, err := c.client.Do(req)
+            if err != nil {
+                return nil, err
+            }
+            defer resp.Body.Close()
+            
+            if resp.StatusCode != http.StatusOK {
+                return nil, fmt.Errorf("unexpected status: %d", resp.StatusCode)
+            }
+            
+            var data ExternalData
+            if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+                return nil, err
+            }
+            
+            return &data, nil
+        })
+        
+        if err != nil {
+            return err
+        }
+        
+        result = body.(*ExternalData)
+        return nil
+    }
+    
+    // Retry with exponential backoff
+    err := retry.Do(
+        operation,
+        retry.Attempts(3),
+        retry.Delay(1*time.Second),
+        retry.DelayType(retry.BackOffDelay),
+        retry.Context(ctx),
+    )
+    
+    if err != nil {
+        // Return default data on failure
+        return c.getDefaultData(id), nil
+    }
+    
+    return result, nil
+}
+
+func (c *ResilientHTTPClient) getDefaultData(id string) *ExternalData {
+    return &ExternalData{
+        ID:     id,
+        Status: "DEFAULT",
+    }
+}
+
+// Message queue integration
+type MessageProducer struct {
+    conn    *amqp.Connection
+    channel *amqp.Channel
+}
+
+func NewMessageProducer(url string) (*MessageProducer, error) {
+    conn, err := amqp.Dial(url)
+    if err != nil {
+        return nil, err
+    }
+    
+    channel, err := conn.Channel()
+    if err != nil {
+        return nil, err
+    }
+    
+    return &MessageProducer{
+        conn:    conn,
+        channel: channel,
+    }, nil
+}
+
+func (p *MessageProducer) SendMessage(exchange, routingKey string, message interface{}) error {
+    body, err := json.Marshal(message)
+    if err != nil {
+        return err
+    }
+    
+    return p.channel.Publish(
+        exchange,
+        routingKey,
+        false,
+        false,
+        amqp.Publishing{
+            ContentType: "application/json",
+            Body:        body,
+        },
+    )
+}
+
+func (p *MessageProducer) Close() {
+    p.channel.Close()
+    p.conn.Close()
+}
+
+// Message consumer
+type MessageConsumer struct {
+    conn    *amqp.Connection
+    channel *amqp.Channel
+    handler MessageHandler
+}
+
+type MessageHandler func([]byte) error
+
+func NewMessageConsumer(url string, handler MessageHandler) (*MessageConsumer, error) {
+    conn, err := amqp.Dial(url)
+    if err != nil {
+        return nil, err
+    }
+    
+    channel, err := conn.Channel()
+    if err != nil {
+        return nil, err
+    }
+    
+    return &MessageConsumer{
+        conn:    conn,
+        channel: channel,
+        handler: handler,
+    }, nil
+}
+
+func (c *MessageConsumer) StartConsuming(queueName string) error {
+    msgs, err := c.channel.Consume(
+        queueName,
+        "",
+        false, // auto-ack
+        false, // exclusive
+        false, // no-local
+        false, // no-wait
+        nil,
+    )
+    if err != nil {
+        return err
+    }
+    
+    go func() {
+        for msg := range msgs {
+            if err := c.handler(msg.Body); err != nil {
+                msg.Nack(false, true) // Requeue on error
+            } else {
+                msg.Ack(false)
+            }
+        }
+    }()
+    
+    return nil
+}
+
+// gRPC client integration
+type GRPCClient struct {
+    conn   *grpc.ClientConn
+    client pb.ServiceClient
+}
+
+func NewGRPCClient(address string) (*GRPCClient, error) {
+    conn, err := grpc.Dial(
+        address,
+        grpc.WithInsecure(),
+        grpc.WithUnaryInterceptor(grpcRetryInterceptor),
+    )
+    if err != nil {
+        return nil, err
+    }
+    
+    return &GRPCClient{
+        conn:   conn,
+        client: pb.NewServiceClient(conn),
+    }, nil
+}
+
+func grpcRetryInterceptor(ctx context.Context, method string, req, reply interface{},
+    cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+    
+    var err error
+    for i := 0; i < 3; i++ {
+        err = invoker(ctx, method, req, reply, cc, opts...)
+        if err == nil {
+            return nil
+        }
+        
+        if i < 2 {
+            time.Sleep(time.Duration(i+1) * time.Second)
+        }
+    }
+    
+    return err
+}
+
+// Integration module
+func NewIntegrationModule() *gimbap.Module {
+    return &gimbap.Module{
+        Name: "IntegrationModule",
+        Providers: []interface{}{
+            func(config *Config) *ResilientHTTPClient {
+                return NewResilientHTTPClient(config.ExternalServiceURL)
+            },
+            func(config *Config) (*MessageProducer, error) {
+                return NewMessageProducer(config.RabbitMQURL)
+            },
+            func(config *Config, handler MessageHandler) (*MessageConsumer, error) {
+                return NewMessageConsumer(config.RabbitMQURL, handler)
+            },
+        },
+    }
+}
+```
+
+## Summary
+
+This guide covered advanced Spring Boot patterns and their GIMBAP equivalents:
+
+### Key Mappings
+
+| Spring Boot Pattern | GIMBAP Implementation |
+|-------------------|---------------------|
+| `@Aspect` / AOP | Middleware and Decorator patterns |
+| `@Cacheable` / `@CacheEvict` | Cache interface with decorators |
+| Spring Boot Actuator | Custom health checks and metrics |
+| WebSocket support | Gorilla WebSocket with Hub pattern |
+| Circuit Breaker | gobreaker library |
+| `@Retryable` | retry-go library |
+| Message Queue | AMQP/RabbitMQ client |
+
+### Best Practices
+
+1. **AOP Patterns**: Use middleware for cross-cutting concerns at HTTP level, decorators for service-level aspects
+2. **Caching**: Implement cache interface to support multiple backends (memory, Redis)
+3. **Monitoring**: Integrate Prometheus for metrics, implement health checks for all critical dependencies
+4. **WebSocket**: Use hub pattern for managing connections and broadcasting
+5. **Integration**: Always use circuit breakers and retries for external service calls
+
+### Coming Soon
+
+- GraphQL integration
+- Distributed tracing with OpenTelemetry
+- Service mesh integration
+- Advanced database patterns (sharding, read replicas)
+- Multi-tenancy support
+
+## Next Steps
+
+- [Testing Strategies →](./06-testing)
