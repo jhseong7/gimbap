@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jhseong7/ecl"
+	"github.com/jhseong7/gimbap/dependency"
 	"github.com/jhseong7/gimbap/provider"
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
@@ -13,7 +14,7 @@ import (
 
 type (
 	FxDependencyManager struct {
-		IDependencyManager
+		dependency.IDependencyManager
 		logger ecl.Logger
 		fxApp  *fx.App
 	}
