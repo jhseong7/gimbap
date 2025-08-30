@@ -54,16 +54,16 @@ import (
     "syscall"
     
     "github.com/jhseong7/gimbap"
-    "github.com/jhseong7/gimbap/engine/gin"
+    gin_engine "github.com/jhseong7/gimbap/external/engine/gin"
     "myapp/internal/app"
 )
 
 func main() {
-    // Create application with configuration
+    // Create application with explicit server engine from external package
     application := gimbap.CreateApp(gimbap.AppOption{
         AppName:      "DemoApplication",
         AppModule:    app.RootModule,
-        ServerEngine: gin_engine.NewGinHttpEngine(),
+        ServerEngine: gin_engine.NewGinHttpEngine(), // Must specify engine
     })
     
     // Add global middleware

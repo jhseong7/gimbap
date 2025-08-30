@@ -1244,10 +1244,11 @@ var MicroservicesModule = gimbap.DefineModule(gimbap.ModuleOption{
 ```go
 // cmd/main.go
 func main() {
+    // Import: gin_engine "github.com/jhseong7/gimbap/external/engine/gin"
     app := gimbap.CreateApp(gimbap.AppOption{
         AppName:      "MyApp",
         AppModule:    app.AppModule,
-        ServerEngine: gin_engine.NewGinHttpEngine(),
+        ServerEngine: gin_engine.NewGinHttpEngine(), // From external package
     })
     
     // Microservices are automatically started when included in modules
