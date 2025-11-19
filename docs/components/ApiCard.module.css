@@ -1,0 +1,94 @@
+.card {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  background-color: #fafafa;
+}
+
+.header {
+  margin-bottom: 1rem;
+}
+
+.name {
+  margin: 0;
+  font-size: 1.5rem;
+  color: #1f2937;
+  font-family: 'Fira Code', monospace;
+}
+
+.signature {
+  background-color: #1e1e1e;
+  padding: 1rem;
+  border-radius: 4px;
+  margin: 1rem 0;
+  overflow-x: auto;
+}
+
+.signature code {
+  color: #d4d4d4;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.9rem;
+  white-space: pre;
+}
+
+.description {
+  margin: 1rem 0;
+  line-height: 1.6;
+}
+
+.section {
+  margin-top: 1.5rem;
+}
+
+.section h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  color: #374151;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table th {
+  text-align: left;
+  padding: 0.5rem;
+  background-color: #e5e7eb;
+  border: 1px solid #d1d5db;
+}
+
+.table td {
+  padding: 0.5rem;
+  border: 1px solid #e5e7eb;
+}
+
+.table code {
+  background-color: #e5e7eb;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  font-size: 0.85rem;
+}
+
+.optional {
+  color: #6b7280;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.example {
+  background-color: #1e1e1e;
+  padding: 1rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 0;
+}
+
+.example code {
+  color: #d4d4d4;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}

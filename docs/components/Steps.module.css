@@ -1,0 +1,67 @@
+.steps {
+  margin: 2rem 0;
+  counter-reset: step-counter;
+}
+
+.step {
+  position: relative;
+  padding-left: 3rem;
+  margin-bottom: 2rem;
+  counter-increment: step-counter;
+}
+
+.step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 1.125rem;
+  top: 3rem;
+  bottom: -2rem;
+  width: 2px;
+  background-color: #e5e7eb;
+}
+
+.stepTitle {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.stepNumber {
+  position: absolute;
+  left: 0;
+  width: 2.5rem;
+  height: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #3b82f6;
+  color: white;
+  border-radius: 50%;
+  font-weight: bold;
+  font-size: 1.125rem;
+  flex-shrink: 0;
+}
+
+.stepNumber::before {
+  content: counter(step-counter);
+}
+
+.stepTitle h3 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.stepContent {
+  line-height: 1.6;
+}
+
+.stepContent > *:first-child {
+  margin-top: 0;
+}
+
+.stepContent > *:last-child {
+  margin-bottom: 0;
+}

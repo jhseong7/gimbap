@@ -1,0 +1,651 @@
+# SQL Database Integration
+
+Learn how to integrate PostgreSQL, MySQL, and other SQL databases with GIMBAP.
+
+import { Steps, Step } from '../../../components/Steps';
+import { Callout } from '../../../components/Callout';
+import { BestPractice } from '../../../components/BestPractice';
+
+## Overview
+
+GIMBAP works seamlessly with any Go SQL library. This guide covers:
+- Using `database/sql` with drivers
+- Using GORM (popular ORM)
+- Connection pooling
+- Transactions
+- Best practices
+
+## Quick Start with database/sql
+
+<Steps>
+
+<Step title="Install Database Driver">
+
+```bash
+# PostgreSQL
+go get github.com/lib/pq
+
+# MySQL
+go get github.com/go-sql-driver/mysql
+
+# SQLite
+go get github.com/mattn/go-sqlite3
+```
+
+</Step>
+
+<Step title="Create Database Provider">
+
+```go
+package database
+
+import (
+    "database/sql"
+    _ "github.com/lib/pq" // PostgreSQL driver
+)
+
+type Database struct {
+    DB *sql.DB
+}
+
+func (d *Database) Close() error {
+    return d.DB.Close()
+}
+
+func NewDatabase() *Database {
+    connStr := "postgres://user:pass@localhost/dbname?sslmode=disable"
+    db, err := sql.Open("postgres", connStr)
+    if err != nil {
+        panic(err)
+    }
+
+    // Configure connection pool
+    db.SetMaxOpenConns(25)
+    db.SetMaxIdleConns(5)
+    db.SetConnMaxLifetime(5 * time.Minute)
+
+    // Verify connection
+    if err := db.Ping(); err != nil {
+        panic(err)
+    }
+
+    return &Database{DB: db}
+}
+```
+
+</Step>
+
+<Step title="Define Provider and Module">
+
+```go
+package database
+
+import "github.com/jhseong7/gimbap"
+
+var DatabaseProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "Database",
+    Instantiator: NewDatabase,
+})
+
+var DatabaseModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name:      "DatabaseModule",
+    Providers: []*gimbap.Provider{DatabaseProvider},
+})
+```
+
+</Step>
+
+<Step title="Use in Services">
+
+```go
+package user
+
+import "database/sql"
+
+type UserRepository struct {
+    DB *database.Database
+}
+
+func (r *UserRepository) FindByID(id int) (*User, error) {
+    var user User
+    err := r.DB.DB.QueryRow(
+        "SELECT id, name, email FROM users WHERE id = $1",
+        id,
+    ).Scan(&user.ID, &user.Name, &user.Email)
+
+    if err == sql.ErrNoRows {
+        return nil, nil
+    }
+    if err != nil {
+        return nil, err
+    }
+
+    return &user, nil
+}
+
+func NewUserRepository(db *database.Database) *UserRepository {
+    return &UserRepository{DB: db}
+}
+```
+
+</Step>
+
+<Step title="Add Cleanup Lifecycle">
+
+```go
+func main() {
+    app := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "MyApp",
+        AppModule:    AppModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+
+    // Close database on shutdown
+    app.AddOnStopListener(func() {
+        db := gimbap.GetProvider(app, database.Database{})
+        db.Close()
+    })
+
+    app.Run(gimbap.RuntimeOptions{Port: 8080})
+}
+```
+
+</Step>
+
+</Steps>
+
+## Using GORM
+
+GORM is a popular ORM for Go. Here's how to integrate it:
+
+### Installation
+
+```bash
+go get -u gorm.io/gorm
+go get -u gorm.io/driver/postgres
+```
+
+### GORM Provider
+
+```go
+package database
+
+import (
+    "gorm.io/driver/postgres"
+    "gorm.io/gorm"
+    "gorm.io/gorm/logger"
+)
+
+type GormDB struct {
+    DB *gorm.DB
+}
+
+func NewGormDB() *GormDB {
+    dsn := "host=localhost user=myuser password=mypass dbname=mydb port=5432 sslmode=disable"
+    db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+        Logger: logger.Default.LogMode(logger.Info),
+    })
+    if err != nil {
+        panic(err)
+    }
+
+    // Auto migrate models
+    db.AutoMigrate(&User{}, &Post{})
+
+    return &GormDB{DB: db}
+}
+
+var GormDBProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "GormDB",
+    Instantiator: NewGormDB,
+})
+```
+
+### Using GORM in Repository
+
+```go
+type UserRepository struct {
+    DB *GormDB
+}
+
+func (r *UserRepository) FindByID(id uint) (*User, error) {
+    var user User
+    result := r.DB.DB.First(&user, id)
+    if result.Error != nil {
+        return nil, result.Error
+    }
+    return &user, nil
+}
+
+func (r *UserRepository) Create(user *User) error {
+    return r.DB.DB.Create(user).Error
+}
+
+func (r *UserRepository) FindAll() ([]User, error) {
+    var users []User
+    result := r.DB.DB.Find(&users)
+    return users, result.Error
+}
+```
+
+## Configuration Management
+
+<Callout type="tip">
+Use environment variables for database configuration - never hardcode credentials!
+</Callout>
+
+### Using Environment Variables
+
+```go
+import "os"
+
+type DatabaseConfig struct {
+    Host     string
+    Port     string
+    User     string
+    Password string
+    DBName   string
+    SSLMode  string
+}
+
+func NewDatabaseConfig() *DatabaseConfig {
+    return &DatabaseConfig{
+        Host:     getEnv("DB_HOST", "localhost"),
+        Port:     getEnv("DB_PORT", "5432"),
+        User:     getEnv("DB_USER", "postgres"),
+        Password: getEnv("DB_PASSWORD", ""),
+        DBName:   getEnv("DB_NAME", "myapp"),
+        SSLMode:  getEnv("DB_SSL_MODE", "disable"),
+    }
+}
+
+func (c *DatabaseConfig) ConnectionString() string {
+    return fmt.Sprintf(
+        "host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+        c.Host, c.Port, c.User, c.Password, c.DBName, c.SSLMode,
+    )
+}
+
+func getEnv(key, defaultValue string) string {
+    if value := os.Getenv(key); value != "" {
+        return value
+    }
+    return defaultValue
+}
+
+// Provider
+var DatabaseConfigProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "DatabaseConfig",
+    Instantiator: NewDatabaseConfig,
+})
+
+// Use in Database provider
+func NewDatabase(config *DatabaseConfig) *Database {
+    db, err := sql.Open("postgres", config.ConnectionString())
+    // ...
+}
+```
+
+## Connection Pooling
+
+<BestPractice
+  doList={[
+    "Set MaxOpenConns based on your DB's connection limit",
+    "Set MaxIdleConns to 10-25% of MaxOpenConns",
+    "Set ConnMaxLifetime to 5-15 minutes",
+    "Monitor connection pool stats in production",
+    "Use prepared statements for repeated queries"
+  ]}
+  dontList={[
+    "Don't use unlimited connections (avoid MaxOpenConns = 0)",
+    "Don't keep idle connections forever",
+    "Don't create new connections per request",
+    "Don't ignore connection errors",
+    "Don't forget to close rows and statements"
+  ]}
+/>
+
+### Optimal Pool Settings
+
+```go
+func configureConnectionPool(db *sql.DB) {
+    // Maximum open connections (adjust based on your DB capacity)
+    db.SetMaxOpenConns(25)
+
+    // Maximum idle connections (keep some warm)
+    db.SetMaxIdleConns(5)
+
+    // Maximum lifetime of a connection
+    db.SetConnMaxLifetime(5 * time.Minute)
+
+    // Maximum idle time for a connection
+    db.SetConnMaxIdleTime(10 * time.Minute)
+}
+```
+
+## Transactions
+
+### Manual Transactions
+
+```go
+func (r *UserRepository) CreateWithProfile(user *User, profile *Profile) error {
+    tx, err := r.DB.DB.Begin()
+    if err != nil {
+        return err
+    }
+
+    // Defer rollback (will be ignored if commit succeeds)
+    defer tx.Rollback()
+
+    // Insert user
+    err = tx.QueryRow(
+        "INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id",
+        user.Name, user.Email,
+    ).Scan(&user.ID)
+    if err != nil {
+        return err
+    }
+
+    // Insert profile
+    _, err = tx.Exec(
+        "INSERT INTO profiles (user_id, bio) VALUES ($1, $2)",
+        user.ID, profile.Bio,
+    )
+    if err != nil {
+        return err
+    }
+
+    // Commit transaction
+    return tx.Commit()
+}
+```
+
+### GORM Transactions
+
+```go
+func (r *UserRepository) CreateWithProfile(user *User, profile *Profile) error {
+    return r.DB.DB.Transaction(func(tx *gorm.DB) error {
+        // Create user
+        if err := tx.Create(user).Error; err != nil {
+            return err
+        }
+
+        // Create profile
+        profile.UserID = user.ID
+        if err := tx.Create(profile).Error; err != nil {
+            return err
+        }
+
+        return nil
+    })
+}
+```
+
+## Migrations
+
+### Manual Migrations
+
+```go
+package migrations
+
+func RunMigrations(db *sql.DB) error {
+    migrations := []string{
+        `CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            email VARCHAR(255) UNIQUE NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS posts (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id),
+            title VARCHAR(255) NOT NULL,
+            content TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+    }
+
+    for _, migration := range migrations {
+        if _, err := db.Exec(migration); err != nil {
+            return err
+        }
+    }
+
+    return nil
+}
+
+// Run on startup
+app.AddOnStartListener(func() {
+    db := gimbap.GetProvider(app, database.Database{})
+    if err := migrations.RunMigrations(db.DB); err != nil {
+        panic(err)
+    }
+})
+```
+
+### Using golang-migrate
+
+```bash
+go get -u github.com/golang-migrate/migrate/v4
+```
+
+```go
+import (
+    "github.com/golang-migrate/migrate/v4"
+    "github.com/golang-migrate/migrate/v4/database/postgres"
+    _ "github.com/golang-migrate/migrate/v4/source/file"
+)
+
+func runMigrations(db *sql.DB) error {
+    driver, err := postgres.WithInstance(db, &postgres.Config{})
+    if err != nil {
+        return err
+    }
+
+    m, err := migrate.NewWithDatabaseInstance(
+        "file://migrations",
+        "postgres",
+        driver,
+    )
+    if err != nil {
+        return err
+    }
+
+    return m.Up()
+}
+```
+
+## Complete Example
+
+Here's a complete working example:
+
+```go
+// database/database.go
+package database
+
+import (
+    "database/sql"
+    "time"
+    _ "github.com/lib/pq"
+    "github.com/jhseong7/gimbap"
+)
+
+type Database struct {
+    DB *sql.DB
+}
+
+func NewDatabase(config *DatabaseConfig) *Database {
+    db, err := sql.Open("postgres", config.ConnectionString())
+    if err != nil {
+        panic(err)
+    }
+
+    db.SetMaxOpenConns(25)
+    db.SetMaxIdleConns(5)
+    db.SetConnMaxLifetime(5 * time.Minute)
+
+    if err := db.Ping(); err != nil {
+        panic(err)
+    }
+
+    return &Database{DB: db}
+}
+
+func (d *Database) Close() error {
+    return d.DB.Close()
+}
+
+var DatabaseProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "Database",
+    Instantiator: NewDatabase,
+})
+
+var DatabaseConfigProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "DatabaseConfig",
+    Instantiator: NewDatabaseConfig,
+})
+
+var DatabaseModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "DatabaseModule",
+    Providers: []*gimbap.Provider{
+        DatabaseConfigProvider,
+        DatabaseProvider,
+    },
+})
+
+// user/repository.go
+package user
+
+type UserRepository struct {
+    DB *database.Database
+}
+
+func (r *UserRepository) FindAll() ([]User, error) {
+    rows, err := r.DB.DB.Query("SELECT id, name, email FROM users")
+    if err != nil {
+        return nil, err
+    }
+    defer rows.Close()
+
+    var users []User
+    for rows.Next() {
+        var user User
+        err := rows.Scan(&user.ID, &user.Name, &user.Email)
+        if err != nil {
+            return nil, err
+        }
+        users = append(users, user)
+    }
+
+    return users, rows.Err()
+}
+
+func NewUserRepository(db *database.Database) *UserRepository {
+    return &UserRepository{DB: db}
+}
+
+var UserRepositoryProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name:         "UserRepository",
+    Instantiator: NewUserRepository,
+})
+
+// main.go
+package main
+
+import (
+    "github.com/jhseong7/gimbap"
+    gin_engine "github.com/jhseong7/gimbap/external/engine/gin"
+    "myapp/database"
+    "myapp/user"
+)
+
+var AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "AppModule",
+    SubModules: []*gimbap.Module{
+        database.DatabaseModule,
+        user.UserModule,
+    },
+})
+
+func main() {
+    app := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "MyApp",
+        AppModule:    AppModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+
+    // Cleanup on shutdown
+    app.AddOnStopListener(func() {
+        db := gimbap.GetProvider(app, database.Database{})
+        db.Close()
+    })
+
+    app.Run(gimbap.RuntimeOptions{Port: 8080})
+}
+```
+
+## Testing with Databases
+
+### Using Test Containers
+
+```bash
+go get github.com/testcontainers/testcontainers-go
+```
+
+```go
+func TestUserRepository(t *testing.T) {
+    // Start PostgreSQL container
+    ctx := context.Background()
+    req := testcontainers.ContainerRequest{
+        Image:        "postgres:15",
+        ExposedPorts: []string{"5432/tcp"},
+        Env: map[string]string{
+            "POSTGRES_PASSWORD": "test",
+            "POSTGRES_DB":       "testdb",
+        },
+    }
+
+    container, _ := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+        ContainerRequest: req,
+        Started:          true,
+    })
+    defer container.Terminate(ctx)
+
+    // Get connection string
+    host, _ := container.Host(ctx)
+    port, _ := container.MappedPort(ctx, "5432")
+
+    // Run tests
+    // ...
+}
+```
+
+## Best Practices
+
+<BestPractice
+  doList={[
+    "Use connection pooling always",
+    "Close database on app shutdown",
+    "Use environment variables for config",
+    "Run migrations on startup (dev) or separately (prod)",
+    "Use prepared statements for security",
+    "Implement retry logic for transient errors",
+    "Log slow queries for optimization",
+    "Use transactions for multi-step operations"
+  ]}
+  dontList={[
+    "Don't commit credentials to version control",
+    "Don't use string concatenation for SQL (SQL injection risk)",
+    "Don't forget to close rows, statements, and transactions",
+    "Don't run migrations directly on production without backup",
+    "Don't use SELECT * in production code",
+    "Don't ignore database errors"
+  ]}
+/>
+
+## Next Steps
+
+- [Add Authentication](/guides/auth/jwt)
+- [Error Handling](/guides/error-handling)
+- [Testing](/guides/testing/integration-testing)
+- [NoSQL Databases](/guides/database/nosql)

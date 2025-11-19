@@ -1,0 +1,424 @@
+# Frequently Asked Questions
+
+Common questions about GIMBAP answered.
+
+import { Callout } from '../../components/Callout';
+
+## General Questions
+
+### What is GIMBAP?
+
+GIMBAP (Go Injection Management for Better Application Programming) is a web framework for Go that provides automatic dependency injection, modular architecture, and enterprise-level patterns. It's inspired by NestJS and Spring Boot but adapted for Go's philosophy.
+
+### Is GIMBAP production-ready?
+
+GIMBAP is currently in **alpha stage**. While it's functional and used in production by some early adopters, the API may change. We recommend:
+- ✅ Use for new projects where you can adapt to changes
+- ✅ Use for internal tools and services
+- ⚠️ Evaluate carefully for critical production systems
+- ⚠️ Pin to specific versions in production
+
+### How does GIMBAP compare to other Go frameworks?
+
+| Feature | GIMBAP | Gin/Fiber/Echo | go-zero | go-kit |
+|---------|--------|---------------|---------|--------|
+| Dependency Injection | Automatic | Manual | Partial | Manual |
+| Module System | Built-in | DIY | DIY | DIY |
+| Learning Curve | Medium | Low | Medium | High |
+| Flexibility | High | High | Medium | Very High |
+| Best For | Large apps | Medium apps | Microservices | Complex systems |
+
+### Why not just use Gin/Fiber/Echo directly?
+
+You should! GIMBAP uses these frameworks under the hood. GIMBAP adds:
+- Automatic dependency injection
+- Module-based organization
+- Controller patterns
+- Unified lifecycle management
+
+For small apps (< 10 routes, < 5 services), raw Gin/Fiber/Echo might be simpler. For larger apps, GIMBAP provides structure that scales.
+
+## Architecture Questions
+
+### How does dependency injection work?
+
+GIMBAP uses Go's reflection to analyze constructor function signatures:
+
+```go
+func NewUserService(db *Database, logger *Logger) *UserService {
+    // GIMBAP reads the signature:
+    // - Needs: *Database, *Logger
+    // - Provides: *UserService
+}
+```
+
+At startup, GIMBAP:
+1. Builds a dependency graph
+2. Detects circular dependencies
+3. Instantiates providers in the correct order
+4. Caches instances for reuse
+
+At runtime, all instances are pre-resolved - zero reflection overhead.
+
+### Does GIMBAP use reflection at runtime?
+
+**No!** Reflection is used only during startup to:
+- Analyze constructor signatures
+- Build dependency graph
+- Instantiate providers
+
+Once the app is running, all dependencies are resolved and cached. Request handling has zero reflection overhead.
+
+### What's the performance impact?
+
+**Startup**: 1-20ms depending on app size (one-time cost)
+**Runtime**: 0ns overhead - same performance as native Gin/Fiber/Echo
+
+GIMBAP is designed for zero runtime overhead. All the "magic" happens once at startup.
+
+### Can I use interface types as dependencies?
+
+Currently, GIMBAP requires concrete types for automatic DI:
+
+```go
+// ✅ Works
+func NewService(db *PostgresDB) *Service
+
+// ❌ Doesn't work (yet)
+func NewService(db Database) *Service // Database is interface
+```
+
+**Workaround**: Wrap interfaces in concrete types:
+
+```go
+type DatabaseWrapper struct {
+    DB Database // interface
+}
+
+func NewService(wrapper *DatabaseWrapper) *Service {
+    db := wrapper.DB // use interface
+}
+```
+
+Future versions may support interface binding.
+
+## Usage Questions
+
+### How do I add a database?
+
+```go
+// 1. Create database provider
+func NewDatabase() *Database {
+    db, _ := sql.Open("postgres", connString)
+    return &Database{DB: db}
+}
+
+var DBProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+    Name: "Database",
+    Instantiator: NewDatabase,
+})
+
+// 2. Add to module
+var AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Providers: []*gimbap.Provider{DBProvider, ...},
+})
+
+// 3. Inject into services
+func NewUserService(db *Database) *UserService {
+    return &UserService{DB: db}
+}
+```
+
+See [Database Integration Guide](/guides/database/sql) for details.
+
+### How do I add middleware?
+
+```go
+// Global middleware
+app.AddMiddleware(corsMiddleware, authMiddleware)
+
+// Engine-specific (e.g., Gin)
+func corsMiddleware(c *gin.Context) {
+    c.Header("Access-Control-Allow-Origin", "*")
+    c.Next()
+}
+```
+
+See [Middleware Guide](/guides/middleware/using-middleware) for more patterns.
+
+### How do I handle errors?
+
+```go
+// In controllers
+func (c *UserController) GetUser(ctx *gin.Context) {
+    user, err := c.UserService.Find(id)
+    if err != nil {
+        ctx.JSON(404, gin.H{"error": "User not found"})
+        return
+    }
+    ctx.JSON(200, user)
+}
+
+// Global error handler (via middleware)
+func errorHandler(c *gin.Context) {
+    c.Next()
+    if len(c.Errors) > 0 {
+        c.JSON(500, gin.H{"errors": c.Errors})
+    }
+}
+```
+
+See [Error Handling Guide](/guides/error-handling) for best practices.
+
+### How do I test my code?
+
+```go
+// Unit test with mocks
+func TestUserService(t *testing.T) {
+    mockDB := &MockDatabase{}
+    service := NewUserService(mockDB)
+
+    user := service.Create("test@example.com")
+    assert.NotNil(t, user)
+}
+
+// Integration test with GIMBAP
+func TestUserAPI(t *testing.T) {
+    testModule := gimbap.DefineModule(gimbap.ModuleOption{
+        Providers: []*gimbap.Provider{
+            MockDBProvider,
+            UserServiceProvider,
+        },
+        Controllers: []*gimbap.Controller{
+            UserControllerProvider,
+        },
+    })
+
+    app := gimbap.CreateApp(gimbap.AppOption{
+        AppModule: testModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+
+    // Test endpoints
+}
+```
+
+See [Testing Guide](/guides/testing/unit-testing) for comprehensive examples.
+
+### How do I organize my project?
+
+Two recommended patterns:
+
+**By Feature**:
+```
+app/
+├── user/
+│   ├── user-service.go
+│   ├── user-controller.go
+│   ├── user-repository.go
+│   └── module.go
+├── auth/
+│   ├── auth-service.go
+│   └── module.go
+└── main.go
+```
+
+**By Layer**:
+```
+app/
+├── controllers/
+├── services/
+├── repositories/
+├── models/
+└── main.go
+```
+
+See [Project Structure Guide](/gettingstarted/installation#sample-folder-structures).
+
+## Troubleshooting
+
+### "Circular dependency detected"
+
+This means you have a dependency loop:
+
+```go
+A requires B
+B requires C
+C requires A  // ← Circular!
+```
+
+**Solutions**:
+1. Refactor to break the cycle (best)
+2. Use a third service to coordinate
+3. Lazy initialization
+
+### "Provider not found"
+
+You referenced a dependency that isn't registered:
+
+```go
+func NewService(db *Database) *Service {
+    // Database provider not in module!
+}
+```
+
+**Solution**: Add provider to module:
+
+```go
+var AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Providers: []*gimbap.Provider{
+        DatabaseProvider,  // ← Add this
+        ServiceProvider,
+    },
+})
+```
+
+### "Duplicate provider detected"
+
+You registered the same type twice:
+
+```go
+var Module = gimbap.DefineModule(gimbap.ModuleOption{
+    Providers: []*gimbap.Provider{
+        DatabaseProvider,
+        DatabaseProvider,  // ← Duplicate!
+    },
+})
+```
+
+**Solution**: Each type can only be provided once per app.
+
+### Routes not registering
+
+Check:
+1. Controller implements `IController` interface
+2. `GetRouteSpecs()` returns correct format
+3. Controller is added to module's `Controllers` field (not `Providers`)
+4. Handler signature matches engine type
+
+```go
+// ✅ Correct
+var Module = gimbap.DefineModule(gimbap.ModuleOption{
+    Controllers: []*gimbap.Controller{UserController},
+})
+
+// ❌ Wrong
+var Module = gimbap.DefineModule(gimbap.ModuleOption{
+    Providers: []*gimbap.Provider{UserController},  // Wrong field!
+})
+```
+
+## Migration Questions
+
+### Can I migrate from an existing Gin/Fiber/Echo app?
+
+Yes! Migration is incremental:
+
+1. **Keep existing code**: Your current handlers work as-is
+2. **Add GIMBAP gradually**: Start with one module
+3. **Migrate services**: Move to DI one at a time
+4. **Migrate controllers**: Convert to GIMBAP controllers incrementally
+
+See [Migration from Gin](/migration/from-gin) guide.
+
+### Can I use existing Gin/Fiber/Echo middleware?
+
+Yes! GIMBAP uses the native engine, so all middleware works:
+
+```go
+import "github.com/gin-contrib/cors"
+
+app.AddMiddleware(cors.Default())  // ✅ Works!
+```
+
+### Can I gradually adopt GIMBAP in existing projects?
+
+Absolutely! You can:
+1. Use GIMBAP only for new features
+2. Keep legacy code as-is
+3. Migrate incrementally
+4. Mix GIMBAP controllers with legacy handlers
+
+## Advanced Questions
+
+### Can I create custom HTTP engines?
+
+Yes! Implement the `IServerEngine` interface:
+
+```go
+type IServerEngine interface {
+    RegisterController(rootPath string, controller IController)
+    Run(option ServerRuntimeOption)
+    Stop()
+    AddMiddleware(middleware ...interface{})
+    AddStatic(prefix, root string, config ...interface{})
+}
+```
+
+See [Custom Engine Guide](/advanced/custom-engine).
+
+### Can I use my own dependency injection framework?
+
+Yes! Implement `IDependencyManager` interface:
+
+```go
+type IDependencyManager interface {
+    ResolveDependencies(instanceMap map[reflect.Type]reflect.Value, providers []*Provider)
+    OnStart()
+    OnStop()
+}
+```
+
+See [Custom DI Manager Guide](/mainconcepts/depsmanager#custom-dependency-manager).
+
+### Can I run multiple GIMBAP apps in one process?
+
+Yes! Each app is isolated:
+
+```go
+app1 := gimbap.CreateApp(gimbap.AppOption{AppModule: Module1})
+app2 := gimbap.CreateApp(gimbap.AppOption{AppModule: Module2})
+
+go app1.Run(gimbap.RuntimeOptions{Port: 8080})
+go app2.Run(gimbap.RuntimeOptions{Port: 8081})
+```
+
+Providers are not shared between apps.
+
+### How do I hot-reload during development?
+
+Use tools like:
+- **Air**: https://github.com/cosmtrek/air
+- **Fresh**: https://github.com/gravityblast/fresh
+- **CompileDaemon**: https://github.com/githubnemo/CompileDaemon
+
+GIMBAP doesn't include hot-reload but works with all Go hot-reload tools.
+
+## Contributing
+
+### How can I contribute?
+
+We welcome contributions!
+
+1. **Report bugs**: [GitHub Issues](https://github.com/jhseong7/gimbap/issues)
+2. **Feature requests**: Open a discussion
+3. **Pull requests**: See CONTRIBUTING.md
+4. **Documentation**: Help improve these docs!
+
+### What's on the roadmap?
+
+- Interface-based DI
+- Interceptor support
+- Guard/Authorization primitives
+- OpenAPI/Swagger auto-generation
+- GraphQL support
+- Template engine integration
+- CLI tool for scaffolding
+
+<Callout type="tip">
+**Still have questions?**
+
+- Check the [documentation](/mainconcepts/introduction)
+- Search [GitHub Issues](https://github.com/jhseong7/gimbap/issues)
+- Ask in [Discussions](https://github.com/jhseong7/gimbap/discussions)
+</Callout>

@@ -1,0 +1,275 @@
+# What is GIMBAP?
+
+**GIMBAP** (Go Injection Management for Better Application Programming) is a modern, opinionated web framework for Go that brings enterprise-level development patterns to the Go ecosystem.
+
+import { Callout } from '../../components/Callout';
+import { FeatureCard, FeatureGrid } from '../../components/FeatureCard';
+
+## The Problem GIMBAP Solves
+
+Building scalable web applications in Go often means manually wiring dependencies, repetitive boilerplate code, and
+
+ lack of structure as projects grow. While Go's simplicity is powerful, it can become a burden in large enterprise applications.
+
+<Callout type="info">
+GIMBAP was born from real-world frustration with managing dependencies in growing Go applications. It brings the best patterns from NestJS and Spring Boot to the Go world, adapted for Go's philosophy.
+</Callout>
+
+## Philosophy
+
+Like the Korean dish it's named after (gimbap - seaweed rice rolls), GIMBAP wraps all your application components together in a cohesive, easy-to-manage structure:
+
+```
+┌─────────────────────────────────────┐
+│  🌊 Module (Seaweed wrapper)       │
+│  ┌──────────────────────────────┐  │
+│  │  🍚 Controllers               │  │
+│  │  🥕 Services (Providers)      │  │
+│  │  🥒 Repositories              │  │
+│  │  🥚 Dependencies              │  │
+│  └──────────────────────────────┘  │
+│                                     │
+│  All wrapped together seamlessly   │
+└─────────────────────────────────────┘
+```
+
+## Core Principles
+
+### 1. **Automatic Dependency Injection**
+
+No more manual wiring. Define what you need, and GIMBAP handles the rest:
+
+```go
+// Just add parameters to your constructor
+func NewUserService(db *Database, logger *Logger) *UserService {
+    return &UserService{DB: db, Logger: logger}
+}
+
+// GIMBAP automatically provides db and logger!
+```
+
+### 2. **Module-First Architecture**
+
+Organize code by features, not file types. Each module is self-contained and reusable:
+
+```go
+var UserModule = gimbap.DefineModule(gimbap.ModuleOption{
+    Name: "UserModule",
+    Providers: []*gimbap.Provider{UserService, UserRepository},
+    Controllers: []*gimbap.Controller{UserController},
+    SubModules: []*gimbap.Module{AuthModule, DatabaseModule},
+})
+```
+
+### 3. **Pluggable Architecture**
+
+Switch HTTP engines without changing your code:
+
+```go
+// Use Gin
+ServerEngine: gin_engine.NewGinHttpEngine()
+
+// Or Fiber
+ServerEngine: fiber_engine.NewFiberHttpEngine()
+
+// Or Echo
+ServerEngine: echo_engine.NewEchoHttpEngine()
+```
+
+### 4. **Type-Safe**
+
+Leverages Go's type system for compile-time safety:
+
+```go
+// Get providers with type safety
+userService := gimbap.GetProvider(app, UserService{})
+// Type: *UserService - fully type-checked!
+```
+
+## Key Features
+
+<FeatureGrid>
+  <FeatureCard
+    icon="🎯"
+    title="Automatic DI"
+    description="Constructor-based dependency injection with automatic resolution and circular dependency detection"
+  />
+  <FeatureCard
+    icon="📦"
+    title="Modular Design"
+    description="Organize code into self-contained, reusable modules that can depend on each other"
+  />
+  <FeatureCard
+    icon="🔌"
+    title="Pluggable Engines"
+    description="Switch between Gin, Fiber, Echo, or create your own custom HTTP engine"
+  />
+  <FeatureCard
+    icon="🎭"
+    title="Controllers"
+    description="Clean MVC pattern with automatic route registration and middleware support"
+  />
+  <FeatureCard
+    icon="⚡"
+    title="Microservices"
+    description="Run background services (gRPC, WebSocket, TCP) alongside your HTTP server"
+  />
+  <FeatureCard
+    icon="🔍"
+    title="Type-Safe"
+    description="Full compile-time type checking for providers and dependencies"
+  />
+  <FeatureCard
+    icon="🚀"
+    title="Production Ready"
+    description="Graceful shutdown, lifecycle hooks, and error handling built-in"
+  />
+  <FeatureCard
+    icon="🧪"
+    title="Testing Friendly"
+    description="Easy to mock providers and test components in isolation"
+  />
+</FeatureGrid>
+
+## Who Should Use GIMBAP?
+
+### ✅ Perfect For:
+
+- **Enterprise Applications**: Large-scale applications with complex dependency graphs
+- **Team Projects**: Clear structure and patterns for team collaboration
+- **Microservices**: Building multiple services with shared modules
+- **Developers from NestJS/Spring**: Familiar patterns adapted for Go
+- **API-First Development**: RESTful APIs with clean architecture
+
+### ⚠️ Consider Alternatives If:
+
+- **Simple CRUD Apps**: For very simple apps, standard library might be enough
+- **Embedded Systems**: GIMBAP uses reflection, adding some overhead
+- **Ultra Low-Level**: If you need absolute control over every detail
+
+## How It Compares
+
+| Feature | GIMBAP | Gin/Fiber/Echo | Standard Library |
+|---------|--------|---------------|------------------|
+| Dependency Injection | ✅ Automatic | ❌ Manual | ❌ Manual |
+| Modular Architecture | ✅ Built-in | ⚠️ DIY | ⚠️ DIY |
+| Auto Route Registration | ✅ Yes | ❌ Manual | ❌ Manual |
+| Engine Swapping | ✅ Yes | ❌ No | N/A |
+| Learning Curve | Medium | Low | Low |
+| Enterprise Patterns | ✅ Yes | ❌ No | ❌ No |
+| Performance | Fast | Faster | Fastest |
+| Best For | Large Apps | Medium Apps | Small Apps |
+
+<Callout type="tip">
+GIMBAP doesn't replace Gin/Fiber/Echo - it uses them under the hood! You get the performance of these frameworks with added structure.
+</Callout>
+
+## Quick Example
+
+Here's a complete GIMBAP application in ~50 lines:
+
+```go
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/jhseong7/gimbap"
+    gin_engine "github.com/jhseong7/gimbap/external/engine/gin"
+)
+
+// Service with dependency
+type UserService struct {
+    DB *Database
+}
+
+func NewUserService(db *Database) *UserService {
+    return &UserService{DB: db}
+}
+
+// Controller with automatic routing
+type UserController struct {
+    UserService *UserService
+}
+
+func (c *UserController) GetRouteSpecs() []gimbap.RouteSpec {
+    return []gimbap.RouteSpec{
+        {Method: "GET", Path: "/users", Handler: c.GetUsers},
+    }
+}
+
+func (c *UserController) GetUsers(ctx *gin.Context) {
+    // Your handler logic
+    ctx.JSON(200, gin.H{"users": []string{"Alice", "Bob"}})
+}
+
+func NewUserController(service *UserService) *UserController {
+    return &UserController{UserService: service}
+}
+
+// Define providers and module
+var (
+    DBProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+        Name: "Database", Instantiator: NewDatabase,
+    })
+
+    UserServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+        Name: "UserService", Instantiator: NewUserService,
+    })
+
+    UserControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+        Name: "UserController", Instantiator: NewUserController, RootPath: "/api",
+    })
+
+    AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+        Name: "AppModule",
+        Providers: []*gimbap.Provider{DBProvider, UserServiceProvider},
+        Controllers: []*gimbap.Controller{UserControllerProvider},
+    })
+)
+
+func main() {
+    app := gimbap.CreateApp(gimbap.AppOption{
+        AppName:      "UserAPI",
+        AppModule:    AppModule,
+        ServerEngine: gin_engine.NewGinHttpEngine(),
+    })
+
+    app.Run(gimbap.RuntimeOptions{Port: 8080})
+}
+```
+
+## Getting Started
+
+Ready to build your first GIMBAP application?
+
+<div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginTop: '2rem'}}>
+  <a href="/gettingstarted/quickstart" style={{padding: '1.5rem', border: '2px solid #3b82f6', borderRadius: '8px', textDecoration: 'none', color: 'inherit', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white'}}>
+    <div style={{fontSize: '2rem', marginBottom: '0.5rem'}}>🚀</div>
+    <strong style={{fontSize: '1.2rem'}}>Quick Start (5 min)</strong>
+    <p style={{fontSize: '0.9rem', margin: '0.5rem 0 0 0', opacity: 0.9}}>Build your first app now</p>
+  </a>
+
+  <a href="/mainconcepts/introduction" style={{padding: '1.5rem', border: '1px solid #e5e7eb', borderRadius: '8px', textDecoration: 'none', color: 'inherit'}}>
+    <div style={{fontSize: '2rem', marginBottom: '0.5rem'}}>📚</div>
+    <strong style={{fontSize: '1.2rem'}}>Learn Concepts</strong>
+    <p style={{fontSize: '0.9rem', color: '#6b7280', margin: '0.5rem 0 0 0'}}>Understand the architecture</p>
+  </a>
+
+  <a href="/examples/real-world/blog-api" style={{padding: '1.5rem', border: '1px solid #e5e7eb', borderRadius: '8px', textDecoration: 'none', color: 'inherit'}}>
+    <div style={{fontSize: '2rem', marginBottom: '0.5rem'}}>💡</div>
+    <strong style={{fontSize: '1.2rem'}}>See Examples</strong>
+    <p style={{fontSize: '0.9rem', color: '#6b7280', margin: '0.5rem 0 0 0'}}>Real-world applications</p>
+  </a>
+</div>
+
+## Community & Support
+
+- **GitHub**: [github.com/jhseong7/gimbap](https://github.com/jhseong7/gimbap)
+- **Issues**: Report bugs and request features
+- **Discussions**: Ask questions and share ideas
+
+---
+
+<Callout type="info" title="Current Status">
+GIMBAP is in **alpha stage**. It's production-capable but the API may change. We're actively working on stability and features.
+</Callout>

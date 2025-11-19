@@ -14,16 +14,20 @@ import (
 
 func main() {
   // App container 1
-  app := gimbap.NewApp(
+  app := gimbap.CreateApp(
     gimbap.AppOption{
+      AppName: "App1",
       AppModule: module,
+      ServerEngine: gin_engine.NewGinHttpEngine(),
     },
   )
 
   // App container 2
-  app2:= gimbap.NewApp(
+  app2 := gimbap.CreateApp(
     gimbap.AppOption{
+      AppName: "App2",
       AppModule: module2,
+      ServerEngine: gin_engine.NewGinHttpEngine(),
     },
   )
 
