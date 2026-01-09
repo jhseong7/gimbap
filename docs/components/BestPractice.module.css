@@ -1,0 +1,69 @@
+.container {
+  margin: 1.5rem 0;
+}
+
+.intro {
+  margin-bottom: 1rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.column {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+  color: white;
+}
+
+.header.do {
+  background-color: #10b981;
+}
+
+.header.dont {
+  background-color: #ef4444;
+}
+
+.icon {
+  font-size: 1.25rem;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.list li {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.list li:last-child {
+  border-bottom: none;
+}
+
+.list li:before {
+  content: "•";
+  margin-right: 0.5rem;
+  font-weight: bold;
+}
+
+.do .list li:before {
+  color: #10b981;
+}
+
+.dont .list li:before {
+  color: #ef4444;
+}

@@ -1,0 +1,263 @@
+# Quick Start
+
+Get up and running with GIMBAP in less than 5 minutes! This tutorial will guide you through creating your first GIMBAP application.
+
+import { Steps, Step } from '../../components/Steps';
+import { Callout } from '../../components/Callout';
+
+<Callout type="info">
+**Prerequisites**: Go 1.23 or later installed on your machine.
+</Callout>
+
+<Steps>
+
+<Step title="Initialize Your Project">
+
+Create a new directory and initialize a Go module:
+
+```bash
+mkdir my-gimbap-app
+cd my-gimbap-app
+go mod init github.com/yourusername/my-gimbap-app
+```
+
+</Step>
+
+<Step title="Install GIMBAP">
+
+Install the GIMBAP framework:
+
+```bash
+go get -u github.com/jhseong7/gimbap
+```
+
+</Step>
+
+<Step title="Create Your First Service">
+
+Create a file `hello-service.go`:
+
+```go
+package main
+
+import "fmt"
+
+type HelloService struct {
+	Message string
+}
+
+func (h *HelloService) SayHello(name string) string {
+	return fmt.Sprintf("%s, %s!", h.Message, name)
+}
+
+func NewHelloService() *HelloService {
+	return &HelloService{
+		Message: "Hello",
+	}
+}
+```
+
+</Step>
+
+<Step title="Create Your First Controller">
+
+Create a file `hello-controller.go`:
+
+```go
+package main
+
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/jhseong7/gimbap"
+)
+
+type HelloController struct {
+	HelloService *HelloService
+}
+
+// Implement IController interface
+func (c *HelloController) GetRouteSpecs() []gimbap.RouteSpec {
+	return []gimbap.RouteSpec{
+		{Method: "GET", Path: "/hello", Handler: c.GetHello},
+		{Method: "GET", Path: "/hello/:name", Handler: c.GetHelloName},
+	}
+}
+
+func (c *HelloController) GetHello(ctx *gin.Context) {
+	ctx.JSON(200, gin.H{
+		"message": c.HelloService.SayHello("World"),
+	})
+}
+
+func (c *HelloController) GetHelloName(ctx *gin.Context) {
+	name := ctx.Param("name")
+	ctx.JSON(200, gin.H{
+		"message": c.HelloService.SayHello(name),
+	})
+}
+
+func NewHelloController(helloService *HelloService) *HelloController {
+	return &HelloController{
+		HelloService: helloService,
+	}
+}
+```
+
+<Callout type="tip">
+Notice how `NewHelloController` takes `*HelloService` as a parameter. GIMBAP will automatically inject it!
+</Callout>
+
+</Step>
+
+<Step title="Define Your Module">
+
+Create a file `app-module.go`:
+
+```go
+package main
+
+import "github.com/jhseong7/gimbap"
+
+var HelloServiceProvider = gimbap.DefineProvider(gimbap.ProviderOption{
+	Name:         "HelloService",
+	Instantiator: NewHelloService,
+})
+
+var HelloControllerProvider = gimbap.DefineController(gimbap.ControllerOption{
+	Name:         "HelloController",
+	Instantiator: NewHelloController,
+	RootPath:     "/api",
+})
+
+var AppModule = gimbap.DefineModule(gimbap.ModuleOption{
+	Name:        "AppModule",
+	Providers:   []*gimbap.Provider{HelloServiceProvider},
+	Controllers: []*gimbap.Controller{HelloControllerProvider},
+})
+```
+
+</Step>
+
+<Step title="Create Your Main File">
+
+Create a file `main.go`:
+
+```go
+package main
+
+import (
+	"github.com/jhseong7/gimbap"
+	gin_engine "github.com/jhseong7/gimbap/external/engine/gin"
+)
+
+func main() {
+	app := gimbap.CreateApp(gimbap.AppOption{
+		AppName:      "MyFirstGimbapApp",
+		AppModule:    AppModule,
+		ServerEngine: gin_engine.NewGinHttpEngine(),
+	})
+
+	app.Run(gimbap.RuntimeOptions{
+		Port: 8080,
+	})
+}
+```
+
+</Step>
+
+<Step title="Run Your Application">
+
+Start your application:
+
+```bash
+go run .
+```
+
+You should see output like:
+
+```
+| MyFirstGimbapApp | 12345  2024-11-19T10:00:00+00:00 LOG    [GimbapDepManager] - Successfully resolved the dependencies for 2 providers
+| MyFirstGimbapApp | 12345  2024-11-19T10:00:00+00:00 LOG    [GinHttpEngine]    - Registered route: GET      /api/hello           --> HelloController.GetHello
+| MyFirstGimbapApp | 12345  2024-11-19T10:00:00+00:00 LOG    [GinHttpEngine]    - Registered route: GET      /api/hello/:name     --> HelloController.GetHelloName
+| MyFirstGimbapApp | 12345  2024-11-19T10:00:00+00:00 LOG    [GIMBAP]           - App starting
+| MyFirstGimbapApp | 12345  2024-11-19T10:00:00+00:00 LOG    [GinHttpEngine]    - Starting the http engine on port 8080
+```
+
+</Step>
+
+<Step title="Test Your API">
+
+Open another terminal and test your endpoints:
+
+```bash
+# Test the default hello endpoint
+curl http://localhost:8080/api/hello
+# Response: {"message":"Hello, World!"}
+
+# Test with a custom name
+curl http://localhost:8080/api/hello/GIMBAP
+# Response: {"message":"Hello, GIMBAP!"}
+```
+
+</Step>
+
+</Steps>
+
+## Congratulations!
+
+You've just created your first GIMBAP application! 🎉
+
+### What You've Learned
+
+- ✅ How to install GIMBAP
+- ✅ How to create Services (Providers)
+- ✅ How to create Controllers with automatic routing
+- ✅ How to use dependency injection automatically
+- ✅ How to organize your code with Modules
+- ✅ How to run a GIMBAP application
+
+## Next Steps
+
+<div style={{display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1rem', marginTop: '2rem'}}>
+  <a href="/mainconcepts/introduction" style={{padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', textDecoration: 'none', color: 'inherit'}}>
+    <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>📘</div>
+    <strong>Learn Core Concepts</strong>
+    <p style={{fontSize: '0.9rem', color: '#6b7280', margin: '0.5rem 0 0 0'}}>Dive deep into GIMBAP's architecture</p>
+  </a>
+
+  <a href="/guides/database/sql" style={{padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', textDecoration: 'none', color: 'inherit'}}>
+    <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>💾</div>
+    <strong>Add a Database</strong>
+    <p style={{fontSize: '0.9rem', color: '#6b7280', margin: '0.5rem 0 0 0'}}>Connect to PostgreSQL, MySQL, or MongoDB</p>
+  </a>
+
+  <a href="/guides/auth/jwt" style={{padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', textDecoration: 'none', color: 'inherit'}}>
+    <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>🔐</div>
+    <strong>Add Authentication</strong>
+    <p style={{fontSize: '0.9rem', color: '#6b7280', margin: '0.5rem 0 0 0'}}>Implement JWT or session-based auth</p>
+  </a>
+
+  <a href="/examples/real-world/blog-api" style={{padding: '1rem', border: '1px solid #e5e7eb', borderRadius: '8px', textDecoration: 'none', color: 'inherit'}}>
+    <div style={{fontSize: '1.5rem', marginBottom: '0.5rem'}}>🚀</div>
+    <strong>Build a Real App</strong>
+    <p style={{fontSize: '0.9rem', color: '#6b7280', margin: '0.5rem 0 0 0'}}>Follow complete tutorials</p>
+  </a>
+</div>
+
+## Project Structure
+
+Your final project structure should look like this:
+
+```
+my-gimbap-app/
+├── go.mod
+├── go.sum
+├── main.go
+├── app-module.go
+├── hello-service.go
+└── hello-controller.go
+```
+
+<Callout type="tip" title="Pro Tip">
+As your application grows, organize your code by features or layers. Check out our [Project Structure Guide](/gettingstarted/installation#sample-folder-structures) for best practices.
+</Callout>

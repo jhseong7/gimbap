@@ -1,3 +1,4 @@
 export default {
-  installation: "Installation",
+  installation: "Installation & Setup",
+  quickstart: "Quick Start (5 min)",
 };

@@ -52,18 +52,22 @@ import (
   "github.com/jhseong7/gimbap/dependency"
 )
 func main() {
-  // Default manager
-  app := gimbap.NewApp(
+  // Default manager (GimbapDependencyManager)
+  app := gimbap.CreateApp(
     gimbap.AppOption{
+      AppName: "MyApp",
       AppModule: module,
+      ServerEngine: gin_engine.NewGinHttpEngine(),
     },
   )
 
-  // Fx manager
-  app = gimbap.NewApp(
+  // Custom dependency manager
+  app = gimbap.CreateApp(
     gimbap.AppOption{
+      AppName: "MyApp",
       AppModule: module,
-      DependencyManager: dependency.NewFxManager(),
+      ServerEngine: gin_engine.NewGinHttpEngine(),
+      DepManager: dependency.NewCustomManager(),
     },
   )
 }
@@ -102,10 +106,12 @@ import (
 )
 
 func main() {
-  app := gimbap.NewApp(
+  app := gimbap.CreateApp(
     gimbap.AppOption{
+      AppName: "MyApp",
       AppModule: module,
-      DependencyManager: &m.NewCustomManager(),
+      ServerEngine: gin_engine.NewGinHttpEngine(),
+      DepManager: m.NewCustomManager(),
     },
   )
 }
